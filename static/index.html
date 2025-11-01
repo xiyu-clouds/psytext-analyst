@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>心镜文本分析系统</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<style>
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+    background-color: #f8f9fa;
+    color: #333;
+    line-height: 1.6;
+    padding: 30px 20px;
+  }
+
+  .container {
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  /* 标题：克制的蓝紫渐变 */
+  .title-container {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+
+  h1 {
+    font-weight: 800;
+    font-size: 32px; /* 从36→32，更稳重 */
+    background: linear-gradient(120deg, #5e35b1, #3949ab); /* 柔和蓝紫，降低亮度 */
+    -webkit-background-clip: text;
+    color: transparent;
+    line-height: 1.3;
+    letter-spacing: -0.5px;
+  }
+
+  textarea#inputText {
+    width: 100%;
+    min-height: 180px;
+    height: 180px;
+    padding: 16px;
+    font-size: 16px;
+    font-family: inherit;
+    border: 1px solid #e1e5eb; /* 柔和灰蓝边框 */
+    border-radius: 10px;
+    resize: vertical;
+    background: #fefefe; /* 非纯白，带灰调 */
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.03); /* 内阴影增加深度 */
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  textarea#inputText:focus {
+    outline: none;
+    border: 2px solid #3498db; /* 2px 足够覆盖，不夸张 */
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1); /* 外发光，柔和 */
+    border-radius: 10px;
+  }
+
+  /* 按钮：保持紧凑但不压迫 */
+  .btn {
+    display: block;
+    width: 100%;
+    max-width: 300px;
+    margin: 14px auto; /* 微调 */
+    padding: 12px;
+    background: #3498db;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    font-size: 17px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+  }
+  .btn:hover:not(:disabled) {
+    background: #2980b9;
+    transform: translateY(-2px);
+  }
+  .btn:disabled {
+    background: #bdc3c7;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* 其余样式保持不变（加载、结果、配置等） */
+  #loading {
+    text-align: center;
+    padding: 20px;
+    color: #7f8c8d;
+    display: none;
+  }
+
+  #result {
+    display: none;
+    background: white;
+    border-radius: 12px;
+    padding: 24px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    margin-top: 20px;
+    animation: fadeIn 0.4s ease;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .report-title {
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 20px;
+    color: #2c3e50;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #eee;
+  }
+
+  .report-section h3 {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 16px 0 10px;
+    color: #3498db;
+  }
+
+  .report-content {
+    background: #f9fbfd;
+    padding: 14px;
+    border-radius: 8px;
+    font-size: 16px;
+    line-height: 1.7;
+    white-space: pre-wrap;
+    border-left: 3px solid #3498db;
+  }
+
+  #globalError {
+    margin-top: 24px;
+    padding: 14px;
+    background: #fdf2f2;
+    color: #e74c3c;
+    border-left: 4px solid #e74c3c;
+    border-radius: 6px;
+    font-weight: 500;
+    display: none;
+  }
+
+  .config-panel {
+    margin-top: 30px;
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+    overflow: hidden;
+  }
+  .config-header {
+    padding: 16px 24px;
+    font-weight: 600;
+    color: #2c3e50;
+    cursor: pointer;
+    background: #f8f9fa;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .config-content {
+    padding: 0 24px 24px;
+    display: none;
+  }
+  .config-actions {
+    margin: 16px 0;
+  }
+  .icon-btn {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    border: none;
+    background: #ecf0f1;
+    color: #7f8c8d;
+    font-size: 18px;
+    cursor: pointer;
+    margin-right: 10px;
+    transition: all 0.2s;
+  }
+  .icon-btn:hover {
+    background: #3498db;
+    color: white;
+  }
+  .icon-btn.save:hover {
+    background: #27ae60;
+  }
+
+  textarea#configEditor {
+    width: 100%;
+    height: 240px;
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    padding: 12px;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: #fcfcfc;
+    margin-top: 10px;
+  }
+
+  #configMessage {
+    margin-top: 12px;
+    padding: 10px;
+    border-radius: 6px;
+    display: none;
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="title-container">
+      <h1>心镜文本分析系统</h1>
+    </div>
+
+    <!-- 输入区 -->
+    <textarea aria-label="" id="inputText" style="background-color: lightgray" placeholder="请输入一段对话或描述文本...">夜晚九点，夏末的微风轻拂。客厅里，月光透过纱帘洒在木地板上...</textarea>
+    <button class="btn" id="analyzeBtn" onclick="analyze()">
+      <i class="fas fa-brain"></i> 开始分析
+    </button>
+
+    <!-- 加载状态 -->
+    <div id="loading">🧠 分析中，请稍候...</div>
+
+    <!-- 配置面板 -->
+    <div class="config-panel">
+      <div class="config-header" style="background-color: #7f8c8d" onclick="toggleConfig()">
+        <span>⚙️ 系统配置（点击展开）</span>
+        <i class="fas fa-chevron-down" id="configArrow"></i>
+      </div>
+      <div class="config-content" id="configContent">
+        <div class="config-actions">
+          <button class="icon-btn" onclick="loadConfig()" title="加载配置">
+            <i class="fas fa-download"></i>
+          </button>
+          <button class="icon-btn save" onclick="saveConfig()" title="保存配置">
+            <i class="fas fa-save"></i>
+          </button>
+        </div>
+        <textarea aria-label="" id="configEditor" placeholder="配置将显示在这里..."></textarea>
+        <div id="configMessage"></div>
+      </div>
+    </div>
+
+        <!-- 分析结果 -->
+    <div id="result"></div>
+
+    <!-- 全局错误（统一底部） -->
+    <div id="globalError"></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/axios@1.6.8/dist/axios.min.js"></script>
+  <script>
+    function toggleConfig() {
+      const content = document.getElementById('configContent');
+      const arrow = document.getElementById('configArrow');
+      const isExpanded = content.style.display === 'block';
+      content.style.display = isExpanded ? 'none' : 'block';
+      arrow.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(180deg)';
+    }
+
+    function showError(msg) {
+      const el = document.getElementById('globalError');
+      el.textContent = `❌ ${msg}`;
+      el.style.display = 'block';
+      // 自动滚动到底部
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }
+
+    function hideError() {
+      document.getElementById('globalError').style.display = 'none';
+    }
+
+    function renderReport(data) {
+      const el = document.getElementById('result');
+      let html = `<div class="report-title">${data.title || '文本多模态感知分析报告'}</div>`;
+
+      const sections = [
+        { key: 'emotion', label: '😊 情绪感知' },
+        { key: 'scene', label: '🌌 场景还原' },
+        { key: 'character_state', label: '👤 人物状态' },
+        { key: 'suggestion', label: '💡 建议' }
+      ];
+
+      sections.forEach(s => {
+        if (data[s.key]) {
+          html += `
+            <div class="report-section">
+              <h3>${s.label}</h3>
+              <div class="report-content">${data[s.key]}</div>
+            </div>
+          `;
+        }
+      });
+
+      el.innerHTML = html;
+      el.style.display = 'block';
+      hideError(); // ✅ 成功渲染结果时，清除错误
+    }
+
+    async function analyze() {
+      const text = document.getElementById('inputText').value.trim();
+      if (!text) {
+        showError('请输入文本内容');
+        return;
+      }
+
+      const btn = document.getElementById('analyzeBtn');
+      const loading = document.getElementById('loading');
+      btn.disabled = true;
+      loading.style.display = 'block';
+      hideError();
+
+      // ✅ 关键：在 await 之前，用用户手势打开一个空白窗口（不会被拦截）
+      const reportWindow = window.open('', '_blank');
+      if (!reportWindow) {
+        // 极少数情况：用户完全禁用弹窗，提示手动操作
+        showError('请允许本页面弹出窗口，或稍后手动查看报告');
+        btn.disabled = false;
+        loading.style.display = 'none';
+        return;
+      }
+
+      try {
+        const res = await axios.post('/api/analyze', {
+          text,
+          title: "文本多模态感知分析报告"
+        });
+
+        const { report_url } = res.data;
+
+        if (report_url) {
+          // ✅ 异步拿到 URL 后，再跳转到真实报告
+          reportWindow.location.href = report_url;
+        } else {
+          reportWindow.close(); // 关闭空白窗口
+          showError('未获取到有效的报告路径');
+        }
+      } catch (err) {
+        reportWindow.close(); // 出错也关掉
+        const msg = err.response?.data?.detail || '分析服务异常，请稍后重试';
+        showError(msg);
+        console.error(err);
+      } finally {
+        btn.disabled = false;
+        loading.style.display = 'none';
+      }
+    }
+
+    async function loadConfig() {
+      const editor = document.getElementById('configEditor');
+      const msgEl = document.getElementById('configMessage');
+      // ✅ 分析开始前，先隐藏可能存在的旧错误
+      hideError();
+      try {
+        const res = await axios.get('/api/config');
+        editor.value = JSON.stringify(res.data, null, 2);
+        msgEl.textContent = '✅ 配置加载成功';
+        msgEl.style.display = 'block';
+        msgEl.style.backgroundColor = '#d4edda';
+        msgEl.style.color = '#155724';
+        setTimeout(() => msgEl.style.display = 'none', 3000);
+      } catch (err) {
+        const msg = err.response?.data?.detail || '配置加载失败';
+        showError(msg);
+      }
+    }
+
+    async function saveConfig() {
+      const editor = document.getElementById('configEditor');
+      const msgEl = document.getElementById('configMessage');
+      // ✅ 保存前清错误
+      hideError();
+      try {
+        const cfg = JSON.parse(editor.value);
+        await axios.post('/api/config', cfg);
+        msgEl.textContent = '✅ 配置已保存';
+        msgEl.style.display = 'block';
+        msgEl.style.backgroundColor = '#d4edda';
+        msgEl.style.color = '#155724';
+        setTimeout(() => msgEl.style.display = 'none', 3000);
+      } catch (e) {
+        if (e instanceof SyntaxError) {
+          showError('JSON 格式错误，请检查语法');
+        } else {
+          const msg = e.response?.data?.detail || '保存失败';
+          showError(msg);
+        }
+      }
+    }
+  </script>
+</body>
+</html>

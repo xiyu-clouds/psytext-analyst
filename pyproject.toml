@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "psytext-analyst"
+version = "0.1.0a0"
+description = "心镜文本分析系统"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "郗彧", email = "zfc15190757398@163.com"}
+]
+maintainers = [
+    {name = "郗彧", email = "zfc15190757398@163.com"}
+]
+
+[project.urls]
+Repository = "https://gitee.com/xiyu0620/psytext-analyst"
+"GitHub Repository" = "https://github.com/xiyu-clouds/psytext-analyst"
+
+# ✅ 正确位置：告诉 setuptools 去 src/ 下自动发现包
+[tool.setuptools.packages.find]
+where = ["src"]
