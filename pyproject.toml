@@ -16,8 +16,8 @@ maintainers = [
 ]
 
 [project.urls]
-Repository = "https://gitee.com/xiyu0620/psytext-analyst"
-"GitHub Repository" = "https://github.com/xiyu-clouds/psytext-analyst"
+Repository = "https://github.com/xiyu-clouds/psytext-analyst"
+"Gitee Repository" = "https://gitee.com/xiyu0620/psytext-analyst"
 
 # ✅ 正确位置：告诉 setuptools 去 src/ 下自动发现包
 [tool.setuptools.packages.find]

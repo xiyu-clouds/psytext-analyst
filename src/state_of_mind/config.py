@@ -40,7 +40,7 @@ class Config:
         'LLM_BACKEND', 'LLM_MODEL', 'LLM_API_URL', 'LLM_API_KEY',
         'LOG_KEEP_DAYS', 'LOG_MAX_BYTES', 'LOG_BACKUP_COUNT', 'LOG_ENABLE_INSPECT',
         'MAX_PARALLEL_CONCURRENCY', 'LLM_CACHE_MAX_SIZE', 'LLM_CACHE_TTL',
-        '_observer', '_watcher_thread', '_stop_event', 'logger', 'metadata',
+        '_observer', '_watcher_thread', '_stop_event', 'logger', 'metadata', '__setitem__',
     ]
 
     def __init__(self):
@@ -59,7 +59,7 @@ class Config:
         # 注入配置
         self.logger.inject_config(self)
         self.logger.initialize(configured=True)
-        self.logger.info("🌊 心海配置加载完成")
+        self.logger.info("🌊 心镜配置加载完成")
 
     def _load_metadata(self) -> Dict[str, Any]:
         # 关心的 URL 键（用于标准化输出）
