@@ -70,6 +70,6 @@
 
 ### 第七条 其他
 
-> - 本协议可更新，更新后在 [Github/Gitee 仓库] 公示，继续使用视为接受。
+> - 本协议可更新，更新后在本项目的 GitHub（https://github.com/xiyu-clouds/psytext-analyst）或 Gitee（https://gitee.com/xiyu0620/psytext-analyst）仓库公示，继续使用视为接受。
 > - 若部分条款无效，不影响其余条款效力。
 > - **本工具包基于开源许可证（MIT）发布，则以该许可证为准，本 EULA 仅补充商业使用与免责条款**。
