@@ -8,19 +8,21 @@
     "XINJING_REDIS_DB": 0,
     "XINJING_REDIS_PASSWORD": null,
     "XINJING_REDIS_TIMEOUT": 5,
-    "XINJING_MAX_PARALLEL_CONCURRENCY": 3,
+    "XINJING_MAX_PARALLEL_CONCURRENCY": 10,
+    "XINJING_CURRENT_PARALLEL_CONCURRENCY": 3,
+    "XINJING_MEDIUM_PARALLEL_CONCURRENCY": 5,
     "XINJING_LOG_KEEP_DAYS": 7,
     "XINJING_LOG_MAX_BYTES": 10485760,
     "XINJING_LOG_BACKUP_COUNT": 10,
-    "XINJING_LLM_BACKEND": "deepseek",
-    "XINJING_LLM_MODEL": "deepseek-chat",
-    "XINJING_LLM_API_URL": "https://api.deepseek.com",
-    "XINJING_LLM_API_KEY": "请输入你的大模型接口密钥",
+    "XINJING_LLM_BACKEND": "qwen",
+    "XINJING_LLM_MODEL": "qwen3-max",
+    "XINJING_LLM_API_URL": "https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation",
+    "XINJING_LLM_API_KEY": "请输入对应大模型的API密钥",
     "XINJING_SUGGESTION_TYPE": "common_suggestion",
     "XINJING_LLM_RECOMMENDED_PARAMS": {
         "temperature": 0.7,
-        "top_p": 0.95,
-        "max_output_tokens": 1024,
-        "result_format": "json_object"
+        "top_p": 0.9,
+        "max_output_tokens": 2048,
+        "result_format": "message"
     }
 }

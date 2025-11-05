@@ -35,9 +35,9 @@ class Config:
         'LOGS_DIR', 'LOGS_FALLBACK_DIR', 'PATH_FILE_APP_JSON', 'REPORT_TITLE',
         'STATIC_PROMPTS_DIR', 'STATIC_REPORTS_DIR', 'SUGGESTION_TYPE',
         'FILE_PROMPTS_PATH', 'FILE_CHAINA_IP_LIST_PATH', 'FILE_DEFAULT_TEMPLATE_PATH',
-        'STORAGE_BACKEND', 'STORAGE_LOCAL', 'STORAGE_REDIS',
+        'STORAGE_BACKEND', 'STORAGE_LOCAL', 'STORAGE_REDIS', 'MEDIUM_PARALLEL_CONCURRENCY',
         'REDIS_HOST', 'REDIS_PORT', 'REDIS_DB', 'REDIS_PASSWORD', 'REDIS_TIMEOUT',
-        'LLM_BACKEND', 'LLM_MODEL', 'LLM_API_URL', 'LLM_API_KEY',
+        'LLM_BACKEND', 'LLM_MODEL', 'LLM_API_URL', 'LLM_API_KEY', 'CURRENT_PARALLEL_CONCURRENCY',
         'LOG_KEEP_DAYS', 'LOG_MAX_BYTES', 'LOG_BACKUP_COUNT', 'LOG_ENABLE_INSPECT',
         'MAX_PARALLEL_CONCURRENCY', 'LLM_CACHE_MAX_SIZE', 'LLM_CACHE_TTL',
         '_observer', '_watcher_thread', '_stop_event', 'logger', 'metadata', '__setitem__',
@@ -117,10 +117,6 @@ class Config:
         except Exception as e:
             self.logger.warning(f"读取已安装包元数据失败: {e}")
 
-        # 如果已成功加载（即使部分字段缺失），也继续尝试 pyproject.toml？
-        # → 实际上我们总是 fallback 到 pyproject.toml 如果 metadata 不完整（比如 dev 模式）
-        # 所以这里不 return，而是继续
-
         # 🔍 第二步：回退到读取本地 pyproject.toml
         pyproject_path = PATH_FILE_PYPROJECT
         if not pyproject_path.exists():
@@ -191,6 +187,7 @@ class Config:
             return raw_config.get(key, default)
 
         self.OUTPUT_ROOT = Path("/home/psytext_analyst/data")
+        # self.OUTPUT_ROOT = Path(DEFAULT_OUTPUT_ROOT) # 本地测试使用
 
         # === Step 3: 构建动态路径 ===
         self._setup_paths()
@@ -235,7 +232,9 @@ class Config:
         self.LOG_BACKUP_COUNT = int(raw_config.get("XINJING_LOG_BACKUP_COUNT")) or int(LOG_BACKUP_COUNT)
 
         # === Step 7: 并发 ===
-        self.MAX_PARALLEL_CONCURRENCY = int(raw_config.get("XINJING_MAX_PARALLEL_CONCURRENCY", 3))
+        self.MAX_PARALLEL_CONCURRENCY = int(raw_config.get("XINJING_MAX_PARALLEL_CONCURRENCY", 10))
+        self.CURRENT_PARALLEL_CONCURRENCY = int(raw_config.get("XINJING_CURRENT_PARALLEL_CONCURRENCY", 3))
+        self.MEDIUM_PARALLEL_CONCURRENCY = int(raw_config.get("XINJING_MEDIUM_PARALLEL_CONCURRENCY", 5))
 
     def _setup_paths(self):
         """基于 OUTPUT_ROOT 动态构建所有输出路径"""

@@ -1241,17 +1241,25 @@ LLM_PROMPTS_SCHEMA = {
                                             "pattern_recognition",
                                             "counterfactual"
                                         ],
-                                        "description": "推理类型：\n- motivational: 行为背后的动机\n- causal: 情绪/行为的直接诱因\n- intentional: 未明说但可合理推断的意图\n- conflict_root: 关系冲突的根本原因\n- expectation_violation: 对规范/期待的违背\n- pattern_recognition: 识别重复出现的行为或互动模式\n- counterfactual: 对未发生事件的假设性反思"
+                                        "description": (
+                                            "- motivational: 行为背后可推断的驱动力（如需求、目标、恐惧）"
+                                            "- causal: 某状态（情绪/行为）的直接触发因素"
+                                            "- intentional: 未明说但可从行为模式中合理推断的目的"
+                                            "- conflict_root: 多方行为或立场不可调和的核心分歧点"
+                                            "- expectation_violation: 对显式或隐式预期（如承诺、惯例、声明）的偏离"
+                                            "- pattern_recognition: 重复出现的行为序列或互动结构"
+                                            "- counterfactual: 对“若当时不同”情境的假设性反思"
+                                        )
                                     },
                                     "anchor_points": {
                                         "type": "array",
                                         "required": False,
-                                        "description": "必须为感知层中已生成的 semantic_notation 数据，禁止虚构、拼接或引用不存在的标签"
+                                        "description": "必须严格引用感知层输出中存在的 semantic_notation 标签，每个标签对应一个已被验证的感知事件。禁止组合、推导或引用未在感知层显式生成的标签"
                                     },
                                     "inferred_proposition": {
                                         "type": "string",
                                         "required": False,
-                                        "description": "必须以‘可能’‘似乎’‘暗示’等弱化词开头，仅描述单一主体的单一推理结论，不得引入新角色、新关系或抽象概念。必须可被后续对话证伪。≤100 字。"
+                                        "description": "必须以“可能”“似乎”“暗示”等弱化词开头，仅描述单一 experiencer 的一个可观察动因、意图或因果关联（如情绪诱因、行为目的），不得引入未在感知层出现的新实体、关系或未经锚定的心理状态。结论必须能通过后续对话中的新 evidence 被证伪或修正。≤100 字。"
                                     },
                                     "evidence": {
                                         "type": "array",
@@ -1273,12 +1281,12 @@ LLM_PROMPTS_SCHEMA = {
                             "semantic_notation": {
                                 "type": "string",
                                 "required": False,
-                                "description":  "若 events 非空，则此字段必须存在。格式：inference_scene_{dominant_inference_type}_{core_theme}，使用 snake_case，≤64 字符。dominant_inference_type 取 events 中出现频次最高的类型；core_theme 应概括整体冲突本质"
+                                "description":  "若 events 非空，则此字段必须存在。格式：inference_scene_{dominant_inference_type}_{core_theme}，使用 snake_case，≤64 字符。dominant_inference_type 取 events 中出现频次最高的类型；core_theme 应概括 events 中共现的核心动因或互动特征（如 control, withdrawal, obligation, inconsistency）。"
                             },
                             "summary": {
                                 "type": "string",
                                 "required": False,
-                                "description": "若 events 非空，则此字段必须存在，≤100 字。仅客观概括 events 中的推理内容，不得引入新信息、评价或建议。"
+                                "description": "若 events 非空，则此字段必须存在，≤100 字。仅客观复述 events 中的推理结论，使用去角色化语言（如“一方”“该主体”），不得引入新信息、评价、建议或情感色彩"
                             }
                         }
                     }
@@ -1342,7 +1350,7 @@ LLM_PROMPTS_SCHEMA = {
                                             "control_axis": {
                                                 "type": "array",
                                                 "required": False,
-                                                "description": "基于 inferred_proposition 识别的控制维度（如‘情感控制’‘义务绑定’），但必须有 evidence 中的字面支撑（如‘牺牲…你就不能…’体现义务交换），否则应省略"
+                                                "description": "基于 inferred_proposition 识别的控制维度（如情感绑定、义务施加、资源条件化），但必须有 evidence 中的字面支撑（如条件句、义务宣称、交换暗示），否则应省略。"
                                             },
                                             "dependency_ratio": {
                                                 "type": "float",
@@ -1354,7 +1362,7 @@ LLM_PROMPTS_SCHEMA = {
                                             "threat_vector": {
                                                 "type": "array",
                                                 "required": False,
-                                                "description": "仅当 evidence 中直接陈述负面后果，且 inferred_proposition 将其解释为施压手段时填写。"
+                                                "description": "仅当 evidence 中直接陈述若不服从将导致的负面后果（如关系断裂、情感撤回、社会惩罚、资源剥夺），且 inferred_proposition 将其解释为施压手段时填写"
                                             },
                                             "evidence": {
                                                 "type": "array",
@@ -1376,28 +1384,28 @@ LLM_PROMPTS_SCHEMA = {
                                     "social_enforcement_mechanism": {
                                         "type": "array",
                                         "required": False,
-                                        "description": "当 inferred_proposition 指出行为受外部群体规范驱动（如‘因怕被议论而施压’），且 evidence 中出现具体引用（如‘别人会说’‘村里人笑话’）时填写。若 inferred_proposition 为‘冲突源于养育义务期待’，而 evidence 为‘我这半辈子白养你了’，可视为对社会性养育回报规范的调用。"
+                                        "description": "当 inferred_proposition 指出行为受外部群体规范或社会评价压力驱动，且 evidence 中出现对第三方评判的显式引用（如提及“他人看法”“规范期待”“声誉风险”等），才可填写。该机制体现为通过调用共享社会脚本（如义务、忠诚、感恩）来强化服从"
                                     },
                                     "narrative_distortion": {
                                         "type": "object",
                                         "required": False,
                                         "format": "{self_justification: str, blame_shift: str, moral_licensing: str, evidence: [str]}",
-                                        "description": "仅当 inferred_proposition 识别出典型认知扭曲话术，且 evidence 中有对应原句。例如：若 inferred_proposition 为‘通过强调牺牲施加义务’，evidence 为‘我为你牺牲…你就不能…’，可视为 moral_licensing；若为‘白养你了’，且 inferred_proposition 解释为责任转嫁，则为 blame_shift。",
+                                        "description": "仅当 inferred_proposition 识别出典型认知扭曲话术模式（如自我合理化、责任外推、道德资本兑换），且 evidence 中存在与该模式语义一致的显式陈述时，才生成该对象。每种子类型必须严格对应其定义：self_justification（为自身行为直接辩解）、blame_shift（将负面结果归因于对方）、moral_licensing（以过往道德行为为当前要求或行为开脱）",
                                         "items": {
                                             "self_justification": {
                                                 "type": "string",
                                                 "required": False,
-                                                "description": "仅当 evidence 中出现为自身行为直接辩解的原话（如‘我这么做都是为你好’），且 inferred_proposition 将其解释为自我合理化。"
+                                                "description": "仅当 evidence 中出现为自身行为提供直接正当性理由的陈述（如声称行为出于对方利益、必要性或善意），且 inferred_proposition 将其解释为自我合理化"
                                             },
                                             "blame_shift": {
                                                 "type": "string",
                                                 "required": False,
-                                                "description": "仅当 evidence 中有明确将责任归咎于对方的语句（如‘我这半辈子白养你了’），且 inferred_proposition 将其解释为责任转嫁。"
+                                                "description": "仅当 evidence 中有明确将负面状态、情绪或后果归咎于对方的语句（如暗示“因你我才如此”“都是你导致…”），且 inferred_proposition 将其解释为责任转嫁"
                                             },
                                             "moral_licensing": {
                                                 "type": "string",
                                                 "required": False,
-                                                "description": "仅当 evidence 中出现以道德付出换取行为豁免的语句（如‘我为你牺牲这么多，你就该听我的’），且 inferred_proposition 支持该解读。"
+                                                "description": "仅当 evidence 中出现以过往道德付出、牺牲或善意行为作为当前要求、控制或豁免理由的陈述（如“我做了X，所以你必须Y”），且 inferred_proposition 支持该解读"
                                             },
                                             "evidence": {
                                                 "type": "array",
@@ -1435,44 +1443,44 @@ LLM_PROMPTS_SCHEMA = {
                 "index": 15,
                 "label": "合理建议层：基于系统平衡、低位者安全与长期演化路径的综合建议",
                 "role": "你是**心海系统**的超级感性与理性并重的人生导师。",
-                "sole_mission": "你的唯一任务是：仅当深度分析输出非空时，基于其**显式陈述的底层动因与结构约束**，提出最小可行、可追溯、无道德预设的行动建议。所有建议必须：\n- 引用深度分析层的具体字段作为依据\n- 仅使用用户已提及的资源或能力\n- 避免理想化、激进或脱离文化语境的方案",
+                "sole_mission": "你的唯一任务是：仅当深度分析输出非空时，基于其**显式陈述的底层动因与结构约束**，提出最小可行、可追溯、无道德预设的行动建议。所有建议必须：\n- 引用深度分析层的具体字段作为依据\n- 仅使用用户已提及的资源或能力\n- 避免理想化、激进或脱离文化语境的方案。若深度分析部分字段缺失，可基于已有事件与用户原文进行最小必要推演，但须确保 semantic_notation 与 summary 始终可生成",
                 "driven_by": "rational_advice",
                 "fields": {
                     "rational_advice": {
                         "type": "object",
                         "required": False,
                         "format": "{evidence: [str], semantic_notation: str, summary: str, safety_first_intervention: [str], systemic_leverage_point: [str], incremental_strategy: [str], stakeholder_tradeoffs: {...}, long_term_exit_path: [str], cultural_adaptation_needed: [str]}",
-                        "description": "仅当 deep_analysis.events 非空时生成。所有建议必须严格基于 deep_analysis 中显式提取的字段（如 core_driver、power_asymmetry、social_enforcement_mechanism 等），禁止引入外部假设。每条建议需注明所依据的 deep_analysis 字段路径（如 'deep_analysis.events[0].power_asymmetry.threat_vector'）。",
+                        "description": "仅当 deep_analysis.events 非空时，必须生成本对象（不得返回 null 或 {}）。其中 semantic_notation 与 summary 为逻辑必填字段：semantic_notation 应基于本层建议的核心策略命名；可依次从 deep_analysis.events → deep_analysis.summary → 用户原始输入中兜底生成。",
                         "items": {
                             "evidence": {
                                 "type": "array",
                                 "required": False,
-                                "description": "若 events 非空，则此字段必须存在，引用所依据的 deep_analysis 对象的 semantic_notation，用于可追溯性"
+                                "description": "引用所依据的 deep_analysis 对象的 semantic_notation，用于可追溯性"
                             },
                             "semantic_notation": {
                                 "type": "string",
                                 "required": False,
-                                "description": "若 events 非空，则此字段必须存在，整体建议方案的标准化语义标识，格式：rational_advice_{primary_strategy}，snake_case，≤64字符。primary_strategy 必须反映 deep_analysis 中识别的核心杠杆点"
+                                "description": "整体建议方案的标准化语义标识，格式：rational_advice_{primary_strategy}（snake_case，≤64字符）。primary_strategy 应概括本建议所针对的核心互动矛盾或杠杆点，优先基于 deep_analysis.events 中的显式动因（如 core_driver）提炼；若无，则从用户输入中抽象得出"
                             },
                             "summary": {
                                 "type": "string",
                                 "required": False,
-                                "description": "若 events 非空，则此字段必须存在，≤100字；仅复述基于 deep_analysis 显式内容推导出的最小可行路径，如‘在不否认母亲情感需求的前提下，将‘陪伴’与‘服从’解耦，避免触发社会评价威胁’"
+                                "description": "≤100字；仅复述基于 deep_analysis 显式内容推导出的最小可行路径"
                             },
                             "safety_first_intervention": {
                                 "type": "array",
                                 "required": False,
-                                "description": "优先确保低位者心理与关系安全的最小干预措施。每条必须标注依据字段，例如：'暂不直接反驳“白养你了”，避免激化 social_shaming（依据：deep_analysis.events[0].power_asymmetry.threat_vector）'"
+                                "description": "优先确保低位者心理与关系安全的最小干预措施。每条必须标注可显示支持的依据字段路径（如 deep_analysis.events[0].protective_intent）。措施应聚焦于用户已具备的即时能力或环境（如沉默、回避、记录、短暂独处），避免引入外部依赖。"
                             },
                             "systemic_leverage_point": {
                                 "type": "array",
                                 "required": False,
-                                "description": "可撬动当前权力结构的关键支点，必须严格对应 deep_analysis.events 中显式存在的 control_axis 或 resource_control。例如：'care_provision 是母亲可让渡的资源（依据：deep_analysis.events[0].resource_control）'，或 'emotional_leverage 依赖女儿的愧疚感，可通过重新定义“陪伴”削弱其效力（依据：deep_analysis.events[0].power_asymmetry.control_axis）'"
+                                "description": "可撬动当前权力结构的关键支点，必须严格对应 deep_analysis.events 中显式存在的 control_axis（控制轴）或 resource_control（资源控制点）。不得推测未提及的权力机制"
                             },
                             "incremental_strategy": {
                                 "type": "array",
                                 "required": False,
-                                "description": "分阶段、低风险行动策略，每步必须基于用户输入中已体现的能力或状态（如‘能沉默’‘尚未离开’‘身处本地’）。例如：'第一步：在母亲情绪平稳时，用“我也想多陪你”肯定其 need_for_company（依据：deep_analysis.events[0].core_driver），但暂不承诺地点；第二步：提出“每周固定视频+每月回家一次”作为替代方案，测试 care_provision 的弹性； 第三步..."
+                                "description": "提供分阶段、低风险、可执行的行动策略，所有步骤必须由低位者（或受保护者）独立发起并完成，无需高位者知情、同意或回应。每条策略应包含：(1) 一个具体、可观测的行为；(2) 明确的执行时机或频率；(3) 所依赖的、用户已在输入中提及的资源；(4) 一个可识别的风险信号及应对方式。策略应将抽象的情感或关系需求，转化为基于现有条件的微小日常实践，避免任何需要外部配合或理想化假设的行动。"
                             },
                             "stakeholder_tradeoffs": {
                                 "type": "object",
@@ -1483,17 +1491,17 @@ LLM_PROMPTS_SCHEMA = {
                                     "victim_cost": {
                                         "type": "array",
                                         "required": False,
-                                        "description": "低位者可能承担的风险，需对应 deep_analysis.events 中的 core_driver 或 survival_imperative。例如：'若减少陪伴频率，可能被强化“不孝”标签（依据：deep_analysis.events[0].social_enforcement_mechanism）'"
+                                        "description": "低位者可能承担的社会、情感或生存风险，需对应 deep_analysis.events 中的 core_driver 或 survival_imperative。例如：“若减少某类服从行为，可能被强化负面身份标签（依据：deep_analysis.events[0].social_enforcement_mechanism）”。"
                                     },
                                     "oppressor_loss": {
                                         "type": "array",
                                         "required": False,
-                                        "description": "高位者可能失去的控制或资源，需对应 control_axis 或 resource_control。例如：'若接受远程陪伴，将削弱 emotional_leverage 的即时效力（依据：deep_analysis.events[0].power_asymmetry.control_axis）'"
+                                        "description": "高位者可能失去的控制手段、资源或象征性权力，需对应 deep_analysis.events 中的 control_axis 或 resource_control。例如：“若接受替代性互动方式，将削弱原有控制机制的即时效力（依据：deep_analysis.events[0].power_asymmetry.control_axis）”。"
                                     },
                                     "system_stability": {
                                         "type": "array",
                                         "required": False,
-                                        "description": "对家庭短期稳定性的潜在冲击，需对应 social_enforcement_mechanism。例如：'若未公开“孝顺”行为，可能引发邻里议论，动摇母亲社会身份（依据：deep_analysis.events[0].social_enforcement_mechanism）'"
+                                        "description": "对当前关系系统短期稳定性的潜在冲击，需对应 deep_analysis.events 中的 social_enforcement_mechanism。例如：“若未维持某种被期待的行为模式，可能引发外部评价压力，动摇系统内某方的社会合法性（依据：deep_analysis.events[0].social_enforcement_mechanism）”。"
                                     },
                                     "evidence": {
                                         "type": "array",
@@ -1505,12 +1513,12 @@ LLM_PROMPTS_SCHEMA = {
                             "long_term_exit_path": {
                                 "type": "array",
                                 "required": False,
-                                "description": "可持续脱离当前情感-社会绑定结构的现实路径，必须基于用户输入中隐含的长期可能性（如‘女儿站在阳台望向远方’暗示离开意愿），但不得虚构资源。例如：'在维持基本联系的前提下，逐步建立独立生活证据（如租房、工作），为未来“物理离开但情感不断”提供事实基础，降低“不孝”指控的可信度'"
+                                "description": "可持续脱离当前情感-社会绑定结构的现实路径，必须基于用户输入中隐含的长期可能性（如对某空间的向往、对独立生活的提及、对某资源的掌控意愿），但不得虚构用户未提及的能力、关系或资源。路径应聚焦于逐步积累可验证的自主性证据（如经济记录、社交边界、物理空间使用权），以降低未来脱离时的系统性反制风险。"
                             },
                             "cultural_adaptation_needed": {
                                 "type": "array",
                                 "required": False,
-                                "description": "需调整的文化认知或可寻求的社会支持，必须对应 deep_analysis.events 中明确提及的社会规范。例如：'将“陪伴”重新定义为‘情感在场’而非‘物理在场’，以适配 modern_filial_piety 观念；或寻找本地支持性亲属作为‘孝顺见证人’，缓冲 social_shaming 风险（依据：deep_analysis.events[0].social_enforcement_mechanism: fear_of_social_judgment）'"
+                                "description": "需调整的文化认知或可寻求的社会支持，必须对应 deep_analysis.events 中明确提及的社会规范或评价机制。例如：将某行为重新定义为符合本地可接受的规范形式，以降低 social_shaming 风险；或识别用户输入中已存在的潜在支持者（如亲属、同事、邻居），作为缓冲外部压力的见证节点（依据：deep_analysis.events[0].social_enforcement_mechanism）"
                             }
                         }
                     }

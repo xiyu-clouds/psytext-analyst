@@ -58,8 +58,8 @@ class MetaCognitiveEngine:
             else {"api_key": config.LLM_API_KEY, "base_url": config.LLM_API_URL, "timeout": 120}
         self._top_field_to_step_types = self._build_top_field_to_step_types()
         self._step_type_to_config = self._build_step_type_to_config()
-        self.max_parallel_concurrency = config.get("MAX_PARALLEL_CONCURRENCY", 3)  # 默认3
-        self._parallel_semaphore = asyncio.Semaphore(self.max_parallel_concurrency)
+        self.current_parallel_concurrency = config.get("CURRENT_PARALLEL_CONCURRENCY", 3)  # 默认3
+        self._parallel_semaphore = asyncio.Semaphore(self.current_parallel_concurrency)
         logger.info(
             f"MetaCognitiveEngine 初始化成功，使用 backend: {backend_name}, model: {llm_model}"
         )
@@ -116,7 +116,6 @@ class MetaCognitiveEngine:
         """异步提取入口，适用于所有异步环境"""
         return await self._async_extract(template_name, user_input, suggestion_type, title, **template_vars)
 
-    @timed
     async def _async_extract(self, template_name: str, user_input: str, suggestion_type: str,
                              title: str = "文本多模态感知分析报告", **template_vars) -> Dict[str, Any]:
         """异步核心流程"""
@@ -233,6 +232,7 @@ class MetaCognitiveEngine:
 
         return {"report_url": report_url}
 
+    @timed
     async def _run_preprocessing_async(
             self,
             prompts: List[Tuple[str, str, str]],
@@ -258,6 +258,7 @@ class MetaCognitiveEngine:
             self._update_context_from_result(result, context, step_name)
             await self.llm_cache.set(cache_key, result)
 
+    @timed
     async def _run_parallel_async(
             self,
             prompts: List[Tuple[str, str, str]],
@@ -304,6 +305,7 @@ class MetaCognitiveEngine:
             all_step_results.append(result)
             self._update_context_from_result(result, context, result.get("step_name"))
 
+    @timed
     async def _run_serial_async(
             self,
             prompts: List[Tuple[str, str, str]],
@@ -350,6 +352,7 @@ class MetaCognitiveEngine:
 
             await self.llm_cache.set(cache_key, result)
 
+    @timed
     async def _execute_single_step_async(
             self,
             prompt_template: str,

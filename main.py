@@ -116,20 +116,22 @@ async def save_config(request: Request):
                 errors.append("XINJING_REDIS_TIMEOUT 必须是正整数")
 
         # 9. XINJING_MAX_PARALLEL_CONCURRENCY: int in [1, 10]
-        concurrency = new_config.get("XINJING_MAX_PARALLEL_CONCURRENCY")
+        concurrency = new_config.get("XINJING_CURRENT_PARALLEL_CONCURRENCY")
+        max_parallel = new_config.get("XINJING_MAX_PARALLEL_CONCURRENCY")
+        medium_parallel = new_config.get("XINJING_MEDIUM_PARALLEL_CONCURRENCY")
         if concurrency is not None:
             if not isinstance(concurrency, int):
-                errors.append("XINJING_MAX_PARALLEL_CONCURRENCY 必须是整数")
+                errors.append("XINJING_CURRENT_PARALLEL_CONCURRENCY 必须是整数")
             elif concurrency < 1:
-                errors.append("XINJING_MAX_PARALLEL_CONCURRENCY 必须 ≥ 1")
-            elif concurrency > 10:
+                errors.append("XINJING_CURRENT_PARALLEL_CONCURRENCY 必须 ≥ 1")
+            elif concurrency > max_parallel:
                 errors.append(
-                    "XINJING_MAX_PARALLEL_CONCURRENCY 超出当前允许的最大值（10）。"
+                    f"XINJING_MAX_PARALLEL_CONCURRENCY 超出当前允许的最大值（{max_parallel}）。"
                     "大模型 API 普通密钥通常仅支持 3~5 并发，过高设置会导致请求被限流或拒绝。"
                 )
-            elif concurrency > 5:
+            elif concurrency > medium_parallel:
                 errors.append(
-                    "XINJING_MAX_PARALLEL_CONCURRENCY 设置为 %d，超过推荐值（5）。"
+                    f"XINJING_MEDIUM_PARALLEL_CONCURRENCY 设置为 %d，超过推荐值（{medium_parallel}）。"
                     "普通大模型 API 密钥在并发 >5 时容易因服务端限流导致部分请求失败，"
                     "建议保持 3~5 以获得稳定响应。" % concurrency
                 )
