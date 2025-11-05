@@ -1,11 +1,12 @@
+import asyncio
 import time
-import eventlet
+from contextlib import AbstractAsyncContextManager
 from typing import Optional
 from .decorator_utils import log_function_event
 
 
-class Timer:
-    """性能计时上下文管理器"""
+class AsyncTimer:
+    """异步性能计时上下文管理器（用于 async/await 环境）"""
 
     def __init__(self, name: str, module: str = "性能统计"):
         self.name = name
@@ -13,8 +14,8 @@ class Timer:
         self.start_time: Optional[float] = None
         self.duration: Optional[float] = None
 
-    def __enter__(self):
-        self.start_time = time.time()
+    async def __aenter__(self):
+        self.start_time = time.perf_counter()
         log_function_event(
             action="start",
             func_name=self.name,
@@ -23,8 +24,8 @@ class Timer:
         )
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.duration = time.time() - self.start_time
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        self.duration = time.perf_counter() - self.start_time
 
         if exc_type is None:
             log_function_event(
@@ -41,52 +42,51 @@ class Timer:
                 duration=self.duration,
                 exception=f"{exc_type.__name__}: {str(exc_val)}"
             )
-        return False  # 不吞异常
+        return False
 
 
-class Timeout:
-    """超时控制上下文管理器"""
+class AsyncTimeout(AbstractAsyncContextManager):
+    """异步超时上下文管理器（Python 3.10 兼容）"""
 
     def __init__(self, timeout: float, name: str, module: str = "超时控制"):
         self.timeout = timeout
         self.name = name
         self.module = module
-        self.timer = None
+        self._task: Optional[asyncio.Task] = None
 
-    def __enter__(self):
+    async def __aenter__(self):
         log_function_event(
             action="start",
             func_name=self.name,
             module_name=self.module,
             timeout=self.timeout
         )
-        self.timer = eventlet.Timeout(self.timeout, False)
+        # 注意：不在此处启动超时，而是在 __aexit__ 中配合 wait_for 使用
+        # 实际超时逻辑由装饰器或外部协程控制
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        # 检查是否超时
-        if self.timer is not None and not self.timer.pending:
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        # 此类不直接管理超时，仅用于日志。
+        # 超时由 asyncio.wait_for 在装饰器中处理。
+        # 所以这里只记录结果。
+        if isinstance(exc_val, asyncio.TimeoutError):
             log_function_event(
                 action="timeout",
                 func_name=self.name,
                 module_name=self.module,
                 timeout=self.timeout
             )
-            # 保留原异常或抛出 TimeoutError
-            if exc_type is None:
-                raise TimeoutError(f"函数 {self.name} 执行超时，超过 {self.timeout} 秒")
+        elif exc_type is None:
+            log_function_event(
+                action="success",
+                func_name=self.name,
+                module_name=self.module
+            )
         else:
-            if exc_type is None:
-                log_function_event(
-                    action="success",
-                    func_name=self.name,
-                    module_name=self.module
-                )
-            else:
-                log_function_event(
-                    action="exception",
-                    func_name=self.name,
-                    module_name=self.module,
-                    exception=f"{exc_type.__name__}: {str(exc_val)}"
-                )
+            log_function_event(
+                action="exception",
+                func_name=self.name,
+                module_name=self.module,
+                exception=f"{exc_type.__name__}: {str(exc_val)}"
+            )
         return False

@@ -10,10 +10,10 @@ from src.state_of_mind.cache.redis import RedisLLMCache
 from .prompter import Prompter
 from ..cache.llm_cache import LLMCache
 from ..config import config
+from ..utils.async_decorators import async_timed
 from ..utils.constants import ModelName, REQUIRED_FIELDS_BY_CATEGORY, LLM_SOURCE_EXTRACTION, \
     PREPROCESSING, PARALLEL, SERIAL, SEMANTIC_MODULES_L1, CATEGORY_SUGGESTION
 from ..utils.file_util import FileUtil
-from ..utils.timeUtil import timed
 from src.state_of_mind.utils.logger import LoggerManager as logger
 
 
@@ -116,6 +116,7 @@ class MetaCognitiveEngine:
         """异步提取入口，适用于所有异步环境"""
         return await self._async_extract(template_name, user_input, suggestion_type, title, **template_vars)
 
+    @async_timed
     async def _async_extract(self, template_name: str, user_input: str, suggestion_type: str,
                              title: str = "文本多模态感知分析报告", **template_vars) -> Dict[str, Any]:
         """异步核心流程"""
@@ -232,7 +233,6 @@ class MetaCognitiveEngine:
 
         return {"report_url": report_url}
 
-    @timed
     async def _run_preprocessing_async(
             self,
             prompts: List[Tuple[str, str, str]],
@@ -258,7 +258,6 @@ class MetaCognitiveEngine:
             self._update_context_from_result(result, context, step_name)
             await self.llm_cache.set(cache_key, result)
 
-    @timed
     async def _run_parallel_async(
             self,
             prompts: List[Tuple[str, str, str]],
@@ -305,7 +304,6 @@ class MetaCognitiveEngine:
             all_step_results.append(result)
             self._update_context_from_result(result, context, result.get("step_name"))
 
-    @timed
     async def _run_serial_async(
             self,
             prompts: List[Tuple[str, str, str]],
@@ -352,7 +350,6 @@ class MetaCognitiveEngine:
 
             await self.llm_cache.set(cache_key, result)
 
-    @timed
     async def _execute_single_step_async(
             self,
             prompt_template: str,
