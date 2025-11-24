@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>心镜文本分析系统</title>
+  <title>心镜文本分析系统 - 表格版</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <style>
   * {
@@ -25,7 +25,6 @@
     margin: 0 auto;
   }
 
-  /* 标题：克制的蓝紫渐变 */
   .title-container {
     text-align: center;
     margin-bottom: 32px;
@@ -33,8 +32,8 @@
 
   h1 {
     font-weight: 800;
-    font-size: 32px; /* 从36→32，更稳重 */
-    background: linear-gradient(120deg, #5e35b1, #3949ab); /* 柔和蓝紫，降低亮度 */
+    font-size: 32px;
+    background: linear-gradient(120deg, #5e35b1, #3949ab);
     -webkit-background-clip: text;
     color: transparent;
     line-height: 1.3;
@@ -48,27 +47,26 @@
     padding: 16px;
     font-size: 16px;
     font-family: inherit;
-    border: 1px solid #e1e5eb; /* 柔和灰蓝边框 */
+    border: 1px solid #e1e5eb;
     border-radius: 10px;
     resize: vertical;
-    background: #fefefe; /* 非纯白，带灰调 */
-    box-shadow: inset 0 1px 2px rgba(0,0,0,0.03); /* 内阴影增加深度 */
+    background: #fefefe;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.03);
     transition: border-color 0.2s, box-shadow 0.2s;
   }
 
   textarea#inputText:focus {
     outline: none;
-    border: 2px solid #3498db; /* 2px 足够覆盖，不夸张 */
-    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1); /* 外发光，柔和 */
+    border: 2px solid #3498db;
+    box-shadow: 0 0 0 3px rgba(52, 152, 219, 0.1);
     border-radius: 10px;
   }
 
-  /* 按钮：保持紧凑但不压迫 */
   .btn {
     display: block;
     width: 100%;
     max-width: 300px;
-    margin: 14px auto; /* 微调 */
+    margin: 14px auto;
     padding: 12px;
     background: #3498db;
     color: white;
@@ -89,7 +87,6 @@
     transform: none;
   }
 
-  /* 其余样式保持不变（加载、结果、配置等） */
   #loading {
     text-align: center;
     padding: 20px;
@@ -157,31 +154,37 @@
   }
   .config-header {
     padding: 16px 24px;
-    font-weight: 600;
-    color: #2c3e50;
+    font-weight: 700;
+    color: #212529;
     cursor: pointer;
-    background: #f8f9fa;
+    background: #ced4da;
     display: flex;
     justify-content: space-between;
     align-items: center;
+    border-bottom: 1px solid #adb5bd;
   }
   .config-content {
-    padding: 0 24px 24px;
+    padding: 24px;
     display: none;
   }
   .config-actions {
-    margin: 16px 0;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
   }
   .icon-btn {
-    width: 40px;
     height: 40px;
     border-radius: 8px;
     border: none;
     background: #ecf0f1;
     color: #7f8c8d;
-    font-size: 18px;
+    font-size: 16px;
     cursor: pointer;
     margin-right: 10px;
+    padding: 0 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
     transition: all 0.2s;
   }
   .icon-btn:hover {
@@ -191,25 +194,69 @@
   .icon-btn.save:hover {
     background: #27ae60;
   }
-
-  textarea#configEditor {
-    width: 100%;
-    height: 240px;
-    font-family: 'Courier New', monospace;
-    font-size: 14px;
-    padding: 12px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    background: #fcfcfc;
-    margin-top: 10px;
+  .icon-btn.reset-all:hover {
+    background: #e74c3c;
+    color: white;
   }
 
+  table.config-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin-top: 12px;
+  }
+  .config-table th,
+  .config-table td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #eee;
+  }
+  .config-table th {
+    background-color: #f8f9fa;
+    font-weight: 600;
+    color: #495057;
+    font-size: 13px;
+  }
+  .config-key {
+    font-family: Consolas, monospace;
+    font-weight: 600;
+    color: #2c3e50;
+    cursor: help;
+    display: inline-block;
+  }
+  .config-key:hover {
+    color: #007bff;
+    transform: scale(1.2);
+    transition: all 0.2s ease;
+  }
+  .config-value-input,
+  .config-value-textarea {
+    font-family: Consolas, monospace;
+    font-size: 13px;
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #fcfcfc;
+  }
+  .config-value-textarea {
+    min-height: 120px;
+    resize: vertical;
+  }
   #configMessage {
     margin-top: 12px;
-    padding: 10px;
-    border-radius: 6px;
+    padding: 8px 12px;
+    border-radius: 4px;
     display: none;
-    font-size: 14px;
+  }
+  .config-key:hover {
+    color: #007bff;
+    transform: scale(1.2);
+    transition: all 0.2s ease;
+  }
+
+  textarea#cfg-XINJING_LLM_RECOMMENDED_PARAMS {
+    min-height: 120px !important;
   }
 </style>
 </head>
@@ -219,44 +266,73 @@
       <h1>心镜文本分析系统</h1>
     </div>
 
-    <!-- 输入区 -->
-    <textarea aria-label="" id="inputText" style="background-color: lightgray" placeholder="请输入一段对话或描述文本...">夜晚九点，夏末的微风轻拂。客厅里，月光透过纱帘洒在木地板上...</textarea>
+    <textarea aria-label="" id="inputText" placeholder="请输入一段对话或描述文本...">夜晚九点，夏末的微风轻拂。客厅里，月光透过纱帘洒在木地板上...</textarea>
     <button class="btn" id="analyzeBtn" onclick="analyze()">
       <i class="fas fa-brain"></i> 开始分析
     </button>
 
-    <!-- 加载状态 -->
     <div id="loading">🧠 分析中，请稍候...</div>
 
-    <!-- 配置面板 -->
     <div class="config-panel">
-      <div class="config-header" style="background-color: #7f8c8d" onclick="toggleConfig()">
+      <div class="config-header" onclick="toggleConfig()">
         <span>⚙️ 系统配置（点击展开）</span>
         <i class="fas fa-chevron-down" id="configArrow"></i>
       </div>
       <div class="config-content" id="configContent">
         <div class="config-actions">
-          <button class="icon-btn" onclick="loadConfig()" title="加载配置">
+          <button class="icon-btn" onclick="loadConfigAsTable()" title="加载配置">
             <i class="fas fa-download"></i>
           </button>
-          <button class="icon-btn save" onclick="saveConfig()" title="保存配置">
+          <button class="icon-btn save" onclick="saveConfigFromTable()" title="保存配置">
             <i class="fas fa-save"></i>
           </button>
         </div>
-        <textarea aria-label="" id="configEditor" placeholder="配置将显示在这里..."></textarea>
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th style="width: 35%;">配置键</th>
+              <th style="width: 65%;">值</th>
+            </tr>
+          </thead>
+          <tbody id="configTableBody"></tbody>
+        </table>
         <div id="configMessage"></div>
       </div>
     </div>
 
-        <!-- 分析结果 -->
     <div id="result"></div>
-
-    <!-- 全局错误（统一底部） -->
     <div id="globalError"></div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/axios@1.6.8/dist/axios.min.js"></script>
   <script>
+    // === 配置项说明元数据（必须保留，用于 tooltip）===
+    const CONFIG_METADATA = {
+      "XINJING_REPORT_TITLE": "报告标题，用于标识生成的分析报告内容",
+      "XINJING_STORAGE_BACKEND": "存储后端类型，当前使用 Redis 作为缓存与状态存储",
+      "XINJING_LLM_CACHE_MAX_SIZE": "LLM 响应内存缓存的最大存储空间（单位：字节）",
+      "XINJING_LLM_CACHE_TTL": "LLM 缓存项的生存时间（TTL），单位：秒（默认 1 小时）",
+      "XINJING_REDIS_HOST": "Redis 服务器主机地址（容器环境通常使用服务名）",
+      "XINJING_REDIS_PORT": "Redis 服务端口",
+      "XINJING_REDIS_DB": "使用的 Redis 数据库编号（0-15，默认为 0）",
+      "XINJING_REDIS_PASSWORD": "Redis 认证密码（留空或 null 表示无需密码）",
+      "XINJING_REDIS_TIMEOUT": "Redis 连接与操作的超时时间，单位：秒",
+      "XINJING_MAX_PARALLEL_CONCURRENCY": "系统允许的最大并行任务数（限制并发 LLM 请求）",
+      "XINJING_CURRENT_PARALLEL_CONCURRENCY": "系统当前使用的并行任务数",
+      "XINJING_MEDIUM_PARALLEL_CONCURRENCY": "推荐的最大并行任务数",
+      "XINJING_LOG_KEEP_DAYS": "日志文件保留天数",
+      "XINJING_LOG_MAX_BYTES": "单个日志文件最大大小（单位：字节）",
+      "XINJING_LOG_BACKUP_COUNT": "日志轮转时保留的备份数量",
+      "XINJING_LLM_BACKEND": "使用的大语言模型（LLM）后端提供商",
+      "XINJING_LLM_MODEL": "具体调用的 LLM 模型名称",
+      "XINJING_LLM_API_URL": "LLM 模型 API 的请求入口地址",
+      "XINJING_LLM_API_KEY": "访问 LLM API 所需的密钥（注意保密！）",
+      "XINJING_SUGGESTION_TYPE": "生成建议的类型，'psychoanalysis'、'consistency_suggestion'、'literary_critic'、'ironic_deconstructor'、'critical_theorist'、'existential_philosopher'、'cultural_anthropologist'",
+      "XINJING_LLM_RECOMMENDED_PARAMS": "推荐的 LLM 调用参数配置（JSON 对象）"
+    };
+
+    let currentConfig = {};
+
     function toggleConfig() {
       const content = document.getElementById('configContent');
       const arrow = document.getElementById('configArrow');
@@ -269,7 +345,6 @@
       const el = document.getElementById('globalError');
       el.textContent = `❌ ${msg}`;
       el.style.display = 'block';
-      // 自动滚动到底部
       el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
@@ -301,7 +376,7 @@
 
       el.innerHTML = html;
       el.style.display = 'block';
-      hideError(); // ✅ 成功渲染结果时，清除错误
+      hideError();
     }
 
     async function analyze() {
@@ -317,10 +392,8 @@
       loading.style.display = 'block';
       hideError();
 
-      // ✅ 关键：在 await 之前，用用户手势打开一个空白窗口（不会被拦截）
       const reportWindow = window.open('', '_blank');
       if (!reportWindow) {
-        // 极少数情况：用户完全禁用弹窗，提示手动操作
         showError('请允许本页面弹出窗口，或稍后手动查看报告');
         btn.disabled = false;
         loading.style.display = 'none';
@@ -336,14 +409,13 @@
         const { report_url } = res.data;
 
         if (report_url) {
-          // ✅ 异步拿到 URL 后，再跳转到真实报告
           reportWindow.location.href = report_url;
         } else {
-          reportWindow.close(); // 关闭空白窗口
+          reportWindow.close();
           showError('未获取到有效的报告路径');
         }
       } catch (err) {
-        reportWindow.close(); // 出错也关掉
+        reportWindow.close();
         const msg = err.response?.data?.detail || '分析服务异常，请稍后重试';
         showError(msg);
         console.error(err);
@@ -353,14 +425,64 @@
       }
     }
 
-    async function loadConfig() {
-      const editor = document.getElementById('configEditor');
-      const msgEl = document.getElementById('configMessage');
-      // ✅ 分析开始前，先隐藏可能存在的旧错误
+    // ===== 渲染配置表格（带 tooltip 和特殊样式）=====
+    function renderConfigTable(configObj) {
+      const tbody = document.getElementById('configTableBody');
+      tbody.innerHTML = '';
+
+      const sortedKeys = Object.keys(configObj).sort();
+
+      sortedKeys.forEach(key => {
+        const value = configObj[key];
+        const desc = CONFIG_METADATA[key] || '无说明';
+
+        const tr = document.createElement('tr');
+
+        // 配置键单元格（带 tooltip）
+        const keyCell = document.createElement('td');
+        const keySpan = document.createElement('span');
+        keySpan.className = 'config-key';
+        keySpan.title = desc; // 悬浮提示
+        keySpan.textContent = key;
+        keyCell.appendChild(keySpan);
+
+        // 值单元格
+        const valueCell = document.createElement('td');
+
+        let inputElement;
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+          // JSON 对象 → textarea
+          inputElement = document.createElement('textarea');
+          inputElement.value = JSON.stringify(value, null, 2);
+          inputElement.className = 'config-value-textarea';
+          if (key === 'XINJING_LLM_RECOMMENDED_PARAMS') {
+            inputElement.id = 'cfg-XINJING_LLM_RECOMMENDED_PARAMS'; // 用于 CSS 特殊样式
+          }
+        } else {
+          // 其他类型 → input
+          inputElement = document.createElement('input');
+          inputElement.type = 'text';
+          inputElement.value = value === null ? 'null' : String(value);
+          inputElement.className = 'config-value-input';
+        }
+
+        inputElement.dataset.key = key;
+        inputElement.spellcheck = false;
+        valueCell.appendChild(inputElement);
+        tr.appendChild(keyCell);
+        tr.appendChild(valueCell);
+        tbody.appendChild(tr);
+      });
+
+      currentConfig = { ...configObj };
+    }
+
+    async function loadConfigAsTable() {
       hideError();
+      const msgEl = document.getElementById('configMessage');
       try {
         const res = await axios.get('/api/config');
-        editor.value = JSON.stringify(res.data, null, 2);
+        renderConfigTable(res.data);
         msgEl.textContent = '✅ 配置加载成功';
         msgEl.style.display = 'block';
         msgEl.style.backgroundColor = '#d4edda';
@@ -372,28 +494,64 @@
       }
     }
 
-    async function saveConfig() {
-      const editor = document.getElementById('configEditor');
-      const msgEl = document.getElementById('configMessage');
-      // ✅ 保存前清错误
+    function parseValue(str, key) {
+      if (str === 'null') return null;
+      if (str === 'true') return true;
+      if (str === 'false') return false;
+      if (/^-?\d+$/.test(str)) return parseInt(str, 10);
+      if (/^-?\d*\.\d+$/.test(str)) return parseFloat(str);
+
+      // 尝试解析 JSON（仅对对象类型）
+      if (key === 'XINJING_LLM_RECOMMENDED_PARAMS') {
+        try {
+          const parsed = JSON.parse(str);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            return parsed;
+          }
+        } catch (e) {
+          throw new Error(`"${key}" 必须是有效的 JSON 对象`);
+        }
+      }
+
+      return str;
+    }
+
+    async function saveConfigFromTable() {
       hideError();
+      const msgEl = document.getElementById('configMessage');
+
+      const inputs = document.querySelectorAll('#configTableBody [data-key]');
+      const newConfig = {};
+
+      for (const el of inputs) {
+        const key = el.dataset.key;
+        const rawValue = el.value.trim();
+        try {
+          newConfig[key] = parseValue(rawValue, key);
+        } catch (e) {
+          showError(e.message || `配置项 "${key}" 格式错误`);
+          return;
+        }
+      }
+
       try {
-        const cfg = JSON.parse(editor.value);
-        await axios.post('/api/config', cfg);
+        await axios.post('/api/config', newConfig);
         msgEl.textContent = '✅ 配置已保存';
         msgEl.style.display = 'block';
         msgEl.style.backgroundColor = '#d4edda';
         msgEl.style.color = '#155724';
         setTimeout(() => msgEl.style.display = 'none', 3000);
       } catch (e) {
-        if (e instanceof SyntaxError) {
-          showError('JSON 格式错误，请检查语法');
-        } else {
-          const msg = e.response?.data?.detail || '保存失败';
-          showError(msg);
-        }
+        const msg = e.response?.data?.detail || '保存失败';
+        showError(msg);
       }
     }
+
+    // 页面加载完成后自动展开配置面板并加载配置
+    window.addEventListener('DOMContentLoaded', () => {
+      loadConfigAsTable();
+      toggleConfig(); // 默认展开
+    });
   </script>
 </body>
 </html>

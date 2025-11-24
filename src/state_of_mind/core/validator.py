@@ -1,6 +1,6 @@
 import json
 from typing import Dict, Any, List, Union, Tuple
-from src.state_of_mind.utils.constants import REQUIRED_FIELDS_BY_CATEGORY, SUPPORTED_CATEGORIES
+from src.state_of_mind.utils.constants import REQUIRED_FIELDS_BY_CATEGORY, SUPPORTED_CATEGORIES, SEMANTIC_NULL_STRINGS
 from src.state_of_mind.utils.logger import LoggerManager as logger
 
 from functools import lru_cache
@@ -47,6 +47,42 @@ def deep_get(data: Any, path: str) -> Any:
     return data
 
 
+def expand_wildcard_paths(data: Any, path: str) -> List[Tuple[str, Any]]:
+    """
+    将带通配符的路径（如 'a.*.b.*.c'）展开为所有实际存在的 (concrete_path, value) 对。
+    例如：
+        data = {"a": [{"b": [{"c": 1}, {"c": 2}]}, {"b": [{"c": 3}]}]}
+        path = "a.*.b.*.c"
+        → [("a[0].b[0].c", 1), ("a[0].b[1].c", 2), ("a[1].b[0].c", 3)]
+    """
+
+    def _recurse(current_data, keys, current_path):
+        if not keys:
+            return [(current_path, current_data)]
+
+        key = keys[0]
+        rest_keys = keys[1:]
+
+        results = []
+
+        if key == '*':
+            if isinstance(current_data, list):
+                for i, item in enumerate(current_data):
+                    new_path = f"{current_path}[{i}]" if current_path else f"[{i}]"
+                    results.extend(_recurse(item, rest_keys, new_path))
+            # 如果不是 list，* 无意义，返回空
+        else:
+            if isinstance(current_data, dict) and key in current_data:
+                new_path = f"{current_path}.{key}" if current_path else key
+                results.extend(_recurse(current_data[key], rest_keys, new_path))
+            # 否则路径不存在，返回空
+
+        return results
+
+    keys = _split_path(path)
+    return _recurse(data, keys, "")
+
+
 def validate_field(
         value: Any,
         field_path: str,
@@ -61,18 +97,16 @@ def validate_field(
     # === 必填性校验 ===
     if required:
         if value is None:
-            errors.append(f"Missing required field: {field_path}")
+            errors.append(f"字段 '{field_path}' 为必填项，但未提供或值为 null")
             return errors
         if is_wildcard_path and isinstance(value, list) and len(value) == 0:
-            errors.append(f"Missing required field or empty list: {field_path}")
+            errors.append(f"通配路径 '{field_path}' 未匹配到任何有效字段，且该字段为必填")
             return errors
 
     # === 非必填字段：如果值为空（None, [], {}, ""），则跳过后续校验 ===
-    # 注意："" 是否算“空”取决于业务，这里假设字符串 "" 也算空
     if not required:
-        # 定义哪些值视为“不存在”而跳过校验
         if value is None:
-            return errors  # 完全跳过校验
+            return errors
         if isinstance(value, list) and len(value) == 0:
             return errors
         if isinstance(value, dict) and len(value) == 0:
@@ -86,36 +120,34 @@ def validate_field(
             # 类型校验器
             if is_wildcard_path and isinstance(value, list):
                 for i, item in enumerate(value):
-                    if item is None:  # 允许列表中有 null 元素？根据业务决定
-                        continue  # 或报错，看需求
+                    if item is None:
+                        continue
                     if not isinstance(item, validator):
                         actual = type(item).__name__
                         expected = validator.__name__
-                        errors.append(f"Field '{field_path}[{i}]' has type {actual}, expected {expected}")
+                        errors.append(f"字段 '{field_path}[{i}]' 的实际类型为 {actual}，但期望类型为 {expected}")
             else:
                 if not isinstance(value, validator):
                     actual = type(value).__name__
                     expected = validator.__name__
-                    errors.append(f"Field '{field_path}' has type {actual}, expected {expected}")
+                    errors.append(f"字段 '{field_path}' 的实际类型为 {actual}，但期望类型为 {expected}")
 
         elif callable(validator):
-            # 自定义校验器
             if is_wildcard_path and isinstance(value, list):
                 for i, item in enumerate(value):
                     if item is None:
                         continue
                     if not validator(item):
-                        errors.append(f"Field '{field_path}[{i}]' failed custom validation")
+                        errors.append(f"字段 '{field_path}[{i}]' 未通过自定义校验规则")
             else:
                 if not validator(value):
-                    errors.append(f"Field '{field_path}' failed custom validation")
+                    errors.append(f"字段 '{field_path}' 未通过自定义校验规则")
         else:
-            logger.warning(f"Unknown validator type: {type(validator).__name__}",
-                           module_name=CHINESE_NAME)
-            errors.append(f"Invalid validator for field '{field_path}'")
+            logger.warning(f"未知的校验器类型: {type(validator).__name__}", module_name=CHINESE_NAME)
+            errors.append(f"字段 '{field_path}' 使用了无效的校验器")
 
     except Exception as e:
-        errors.append(f"Field '{field_path}' validation crashed: {str(e)}")
+        errors.append(f"字段 '{field_path}' 校验时发生异常: {str(e)}")
 
     return errors
 
@@ -149,20 +181,23 @@ def remove_nulls(data: Any) -> Any:
             cleaned_v = remove_nulls(v)
             if cleaned_v is not None:  # 只保留非 None
                 cleaned[k] = cleaned_v
-        return cleaned if cleaned else None  # 如果字典空了，返回 None
+        return cleaned if cleaned else None
     elif isinstance(data, list):
         cleaned_list = []
         for item in data:
             cleaned_item = remove_nulls(item)
             if cleaned_item is not None:
                 cleaned_list.append(cleaned_item)
-        return cleaned_list if cleaned_list else None  # 列表空了也返回 None
+        return cleaned_list if cleaned_list else None
     elif isinstance(data, str):
-        return data if data.strip() != "" else None
+        stripped = data.strip()
+        if stripped == "" or stripped in SEMANTIC_NULL_STRINGS:
+            return None
+        return data
     elif isinstance(data, (int, float, bool)):
-        return data  # 基本类型保留
+        return data
     else:
-        return data  # 其他对象保留
+        return data
 
 
 def safe_json_output(data: dict) -> str:
@@ -188,12 +223,65 @@ def collect_validation_errors(
         try:
             field_path, required, validator, desc = rule
         except ValueError:
-            errors.append(f"Invalid rule format (expected 4-tuple): {rule}")
+            err_msg = f"规则格式错误（应为4元组）: {rule}"
+            logger.error(err_msg, module_name=CHINESE_NAME)
+            errors.append(err_msg)
             continue
 
-        value = deep_get(cleaned_data, field_path)
-        field_errors = validate_field(value, field_path, required, validator)
-        errors.extend(field_errors)
+        if '*' in field_path:
+            logger.debug(f"检测到通配路径，正在展开: '{field_path}'", module_name=CHINESE_NAME)
+            concrete_items = expand_wildcard_paths(cleaned_data, field_path)
+            logger.debug(f"路径 '{field_path}' 展开后得到 {len(concrete_items)} 个具体字段", module_name=CHINESE_NAME)
+
+            if not concrete_items:
+                pass
+
+            for concrete_path, value in concrete_items:
+                logger.debug(f"校验具体字段: {concrete_path} = {repr(value)}", module_name=CHINESE_NAME)
+
+                # === 通配路径：自动修复非列表值 → [value]（仅当 validator 是 IS_LIST）===
+                if (hasattr(validator, '__name__') and validator.__name__ == 'is_list') and value is not None:
+                    if not isinstance(value, list):
+                        should_repair = True
+                        if isinstance(value, str):
+                            stripped = value.strip()
+                            if stripped == "" or stripped in SEMANTIC_NULL_STRINGS:
+                                should_repair = False
+                        if should_repair:
+                            repaired_value = [value]
+                            # 转换 concrete_path: "a[0].b[1].c" → "a.0.b.1.c"
+                            dot_path = concrete_path.replace('[', '.').replace(']', '')
+                            deep_set(cleaned_data, dot_path, repaired_value)
+                            logger.info(
+                                f"自动修复通配字段 '{concrete_path}': 原值 {repr(value)} 不是列表，已包装为单元素列表",
+                                module_name=CHINESE_NAME
+                            )
+
+                field_errors = validate_field(value, concrete_path, required, validator)
+                errors.extend(field_errors)
+        else:
+            value = deep_get(cleaned_data, field_path)
+            logger.debug(f"校验普通字段: {field_path} = {repr(value)}", module_name=CHINESE_NAME)
+
+            # === 普通路径：自动修复非列表值 → [value]（仅当 validator 是 IS_LIST）===
+            if (hasattr(validator, '__name__') and validator.__name__ == 'is_list') and value is not None:
+                if not isinstance(value, list):
+                    should_repair = True
+                    if isinstance(value, str):
+                        stripped = value.strip()
+                        if stripped == "" or stripped in SEMANTIC_NULL_STRINGS:
+                            should_repair = False
+                    if should_repair:
+                        repaired_value = [value]
+                        deep_set(cleaned_data, field_path, repaired_value)
+                        logger.info(
+                            f"自动修复字段 '{field_path}': 原值 {repr(value)} 不是列表，已包装为单元素列表",
+                            module_name=CHINESE_NAME
+                        )
+
+            field_errors = validate_field(value, field_path, required, validator)
+            errors.extend(field_errors)
+
     return errors
 
 

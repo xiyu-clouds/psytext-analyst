@@ -50,12 +50,12 @@ class FileUtil:
                 result = chardet.detect(raw_data)
                 detected_encoding = result['encoding'] or 'utf-8'
                 content = raw_data.decode(detected_encoding, errors='ignore')
-                logger.debug(f"🔍 自动检测编码读取: {file_path} -> {detected_encoding}")
+                logger.info(f"🔍 自动检测编码读取: {file_path} -> {detected_encoding}")
                 return content
             else:
                 with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
                     content = f.read()
-                logger.debug(f"📖 指定编码读取: {file_path} ({encoding})", module_name=FileUtil.CHINESE_NAME)
+                logger.info(f"📖 指定编码读取: {file_path} ({encoding})", module_name=FileUtil.CHINESE_NAME)
                 return content
         except Exception as e:
             logger.error(f"❌ 读取文件失败: {file_path} - {e}", exc_info=True)
@@ -245,7 +245,7 @@ class FileUtil:
                 logger.warning(f"⚠️ 配置文件为空: {file_path}")
                 return {}
             data = json.loads(content)
-            logger.debug(f"📥 成功加载配置文件: {file_path}")
+            logger.info(f"📥 成功加载配置文件: {file_path}")
             return data
         except Exception as e:
             logger.error(f"❌ 读取配置文件失败: {file_path} - {e}")

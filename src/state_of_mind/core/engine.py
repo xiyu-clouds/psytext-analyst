@@ -3,7 +3,7 @@ import time
 import uuid
 from copy import deepcopy
 from pathlib import Path
-from typing import List, Any, Tuple, Dict, Optional
+from typing import List, Any, Tuple, Dict, Optional, Set
 from src.state_of_mind.utils.registry import GlobalSingletonRegistry
 from src.state_of_mind.cache.base import BaseCache
 from src.state_of_mind.cache.redis import RedisLLMCache
@@ -11,8 +11,10 @@ from .prompter import Prompter
 from ..cache.llm_cache import LLMCache
 from ..config import config
 from ..utils.async_decorators import async_timed
-from ..utils.constants import ModelName, REQUIRED_FIELDS_BY_CATEGORY, LLM_SOURCE_EXTRACTION, \
-    PREPROCESSING, PARALLEL, SERIAL, SEMANTIC_MODULES_L1, CATEGORY_SUGGESTION
+from ..utils.constants import ModelName, REQUIRED_FIELDS_BY_CATEGORY, LLM_PARTICIPANTS_EXTRACTION, \
+    PREPROCESSING, PARALLEL, SERIAL, SEMANTIC_MODULES_L1, CATEGORY_SUGGESTION, LLM_EXPLICIT_MOTIVATION_EXTRACTION, \
+    LLM_INFERENCE, PERCEPTION_LAYERS, ALLOWED_SERIAL_MARKERS, ALLOWED_PARALLEL_MARKERS, EXCLUDED_PRONOUNS, \
+    CHINESE_PRONOUNS
 from ..utils.file_util import FileUtil
 from src.state_of_mind.utils.logger import LoggerManager as logger
 
@@ -123,6 +125,7 @@ class MetaCognitiveEngine:
         context = template_vars.copy()
         context["user_input"] = user_input
         context["llm_model"] = self.llm_model
+        self.user_input = user_input
 
         # 参数校验（同步）
         if not template_name or not isinstance(template_name, str):
@@ -274,20 +277,30 @@ class MetaCognitiveEngine:
             return
 
         logger.info("⚡ 执行并行任务", extra={"count": len(prompts)})
-        rendered_prompt = self.build_parallel_context(
-            step_name=LLM_SOURCE_EXTRACTION,
-            prompt_template="",
+        # 构建参与者有效信息，只需要一次
+        self.build_parallel_context(
+            step_name=LLM_PARTICIPANTS_EXTRACTION,
             context=context,
             context_desc_info=context_desc_info
         )
 
         # 显式定义返回类型，让类型检查器知道可能返回 Exception
-        async def _task(index: int, step_name: str, driven_by: str, prompt_template: str) -> Dict[str, Any]:
+        async def _task(idx: int, step_name: str, driven_by: str, prompt_template: str) -> Dict[str, Any]:
             async with self._parallel_semaphore:  # ← 限制并发
-                cache_key = f"{cache_key_base}:{step_name}:{index}"
-                prompt_template += rendered_prompt
+                cache_key = f"{cache_key_base}:{step_name}:{idx}"
+                rendered_prompt = prompt_template
+
+                # === 关键：按 marker 动态筛选要注入的上下文 ===
+                allowed = ALLOWED_PARALLEL_MARKERS.get(idx, set())
+                for ctx_str in context_desc_info:
+                    if not ctx_str or not isinstance(ctx_str, str):
+                        continue
+                    # 检查该段是否以允许的 marker 开头
+                    if any(ctx_str.lstrip().startswith(marker) for marker in allowed):
+                        rendered_prompt += ctx_str
+
                 prompt_records[PARALLEL].append({"step_name": step_name, "prompt": rendered_prompt})
-                data = await self._execute_single_step_async(prompt_template, template_name, step_name, cache_key,
+                data = await self._execute_single_step_async(rendered_prompt, template_name, step_name, cache_key,
                                                              PARALLEL)
                 await self.llm_cache.set(cache_key, data)
                 return data
@@ -300,7 +313,11 @@ class MetaCognitiveEngine:
 
         results = await asyncio.gather(*tasks, return_exceptions=False)
 
+        legitimate_participants = self._build_legitimate_participant_set(context)
+
         for idx, result in enumerate(results):
+            # 调用封装的后处理函数
+            await self._filter_perception_results_by_legitimate_participants(result, legitimate_participants)
             all_step_results.append(result)
             self._update_context_from_result(result, context, result.get("step_name"))
 
@@ -323,19 +340,25 @@ class MetaCognitiveEngine:
         # === 关键：动态生成感知的上下文描述 ===
         dynamic_desc = self.build_serial_context_batch(context)
         context_desc_info.append(dynamic_desc)
+        # 生成合法参与者数据
+        legit_participants_ctx = self._build_participants_context_desc(context)
+        if legit_participants_ctx:
+            context_desc_info.append(legit_participants_ctx)
+
         total_steps = len(prompts)
 
         for idx, (step_name, driven_by, prompt_template) in enumerate(prompts):
             cache_key = f"{cache_key_base}:{step_name}:{idx}"
-            rendered_prompt = f"{prompt_template}"
-            if idx == 0:
-                for item in context_desc_info:
-                    rendered_prompt += f"{item}"
-            else:
-                if context_desc_info:
-                    rendered_prompt += context_desc_info[0]  # 初始上下文
-                    if len(context_desc_info) > 1:
-                        rendered_prompt += context_desc_info[-1]  # 最新上下文
+            rendered_prompt = prompt_template
+
+            # === 关键：按 marker 动态筛选要注入的上下文 ===
+            allowed = ALLOWED_SERIAL_MARKERS.get(idx, set())
+            for ctx_str in context_desc_info:
+                if not ctx_str or not isinstance(ctx_str, str):
+                    continue
+                # 检查该段是否以允许的 marker 开头
+                if any(ctx_str.lstrip().startswith(marker) for marker in allowed):
+                    rendered_prompt += ctx_str
 
             prompt_records[SERIAL].append({"step_name": step_name, "prompt": rendered_prompt})
             result = await self._execute_single_step_async(rendered_prompt, template_name, step_name,
@@ -346,7 +369,7 @@ class MetaCognitiveEngine:
             # 仅在非最后一次迭代时生成并注入并行上下文描述
             if idx < total_steps - 1:
                 temp_context = {driven_by: context.get(driven_by)}
-                self.build_parallel_context(step_name, "", temp_context, context_desc_info)
+                self.build_parallel_context(step_name, temp_context, context_desc_info)
 
             await self.llm_cache.set(cache_key, result)
 
@@ -449,8 +472,8 @@ class MetaCognitiveEngine:
         else:
             logger.info("⚪ data 为空，跳过注入", module_name=MetaCognitiveEngine.CHINESE_NAME, extra={"step": step_name})
 
-    @staticmethod
     def _assemble_final_data(
+            self,
             context: Dict[str, Any],
             basic_data: Dict[str, Any]
     ) -> Dict[str, Any]:
@@ -505,16 +528,18 @@ class MetaCognitiveEngine:
                 privacy_score += 0.05
 
         # 深度分析层（+0.05）
-        deep_analysis = context.get("deep_analysis")
-        if isinstance(deep_analysis, dict):
-            has_deep_analysis = (
-                    (isinstance(deep_analysis.get("summary"), str) and deep_analysis["summary"].strip()) or
-                    (isinstance(deep_analysis.get("core_driver"), list) and len(deep_analysis["core_driver"]) > 0) or
-                    (isinstance(deep_analysis.get("power_asymmetry"), dict) and deep_analysis["power_asymmetry"]) or
-                    (isinstance(deep_analysis.get("narrative_distortion"), dict) and deep_analysis[
+        explicit_motivation = context.get("explicit_motivation")
+        if isinstance(explicit_motivation, dict):
+            has_explicit_motivation = (
+                    (isinstance(explicit_motivation.get("summary"), str) and explicit_motivation["summary"].strip()) or
+                    (isinstance(explicit_motivation.get("core_driver"), list) and len(
+                        explicit_motivation["core_driver"]) > 0) or
+                    (isinstance(explicit_motivation.get("power_asymmetry"), dict) and explicit_motivation[
+                        "power_asymmetry"]) or
+                    (isinstance(explicit_motivation.get("narrative_distortion"), dict) and explicit_motivation[
                         "narrative_distortion"])
             )
-            if has_deep_analysis:
+            if has_explicit_motivation:
                 privacy_score += 0.05
 
         # 合理建议层（+0.1）
@@ -537,7 +562,35 @@ class MetaCognitiveEngine:
         privacy_scope = meta.setdefault("privacy_scope", {})
         privacy_scope["privacy_level"] = float(privacy_level)
 
+        # 关键：清理 result 中“全空”的顶层字段
+        keys_to_remove = []
+        for key, value in result.items():
+            if not self._is_value_effective(value):
+                keys_to_remove.append(key)
+
+        for key in keys_to_remove:
+            del result[key]
         return result
+
+    def _is_value_effective(self, value) -> bool:
+        """
+        判断一个值是否“有效”（即不应被视为空）。
+        - 字符串：非空且非纯空白 → 有效
+        - 列表/元组：至少一个元素有效 → 有效
+        - 字典：至少一个 value 有效 → 有效
+        - None / 空字符串 / 空 list / 空 dict → 无效
+        - bool / int / float → 一律视为有效（如 privacy_level=0.0 是有效的）
+        """
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return bool(value.strip())
+        if isinstance(value, (list, tuple)):
+            return any(self._is_value_effective(item) for item in value)
+        if isinstance(value, dict):
+            return any(self._is_value_effective(v) for v in value.values())
+        # bool, int, float, etc.
+        return True
 
     @staticmethod
     def build_user_input_only(
@@ -546,7 +599,7 @@ class MetaCognitiveEngine:
             context_desc_info: List
     ) -> str:
         user_input_text = context.get("user_input", "")
-        build_context_desc = f"\n\n## 用户输入\n{user_input_text}"
+        build_context_desc = f"### USER_INPUT BEGIN（用户原始输入开始）\n{user_input_text}\n### USER_INPUT END（用户原始输入结束）\n"
         context_desc_info.append(build_context_desc)
         rendered_prompt = f"{prompt_template}{build_context_desc}"
         return rendered_prompt
@@ -554,29 +607,44 @@ class MetaCognitiveEngine:
     def build_parallel_context(
             self,
             step_name: str,
-            prompt_template: str,
             context: Dict[str, Any],
             context_desc_info: List
-    ) -> str:
+    ):
         """
         构建最终渲染后的 prompt，支持动态描述生成。
         """
         field_config = self._step_type_to_config.get(step_name)
-        construction_input = ""
+        wrapped_desc = ""
         if field_config:
             try:
-                construction_input = self.prompter.generate_description(
+                raw_desc = self.prompter.generate_description(
                     context=context,
                     field_config=field_config,
                     prefix=""
                 )
-                construction_input = "\n" + construction_input
-                context_desc_info.append(construction_input)
+                start_marker = ""
+                end_marker = ""
+                readable = ""
+                if raw_desc:
+                    if step_name == LLM_PARTICIPANTS_EXTRACTION:
+                        start_marker = "### PARTICIPANTS_VALID_INFORMATION BEGIN"
+                        end_marker = "### PARTICIPANTS_VALID_INFORMATION END"
+                        readable = "参与者有效信息上下文"
+                    elif step_name == LLM_INFERENCE:
+                        start_marker = "### INFERENCE_CONTEXT BEGIN"
+                        end_marker = "### INFERENCE_CONTEXT END"
+                        readable = "合理推演有效信息上下文"
+                    elif step_name == LLM_EXPLICIT_MOTIVATION_EXTRACTION:
+                        start_marker = "### EXPLICIT_MOTIVATION_CONTEXT BEGIN"
+                        end_marker = "### EXPLICIT_MOTIVATION_CONTEXT END"
+                        readable = "显性动机有效信息上下文"
+
+                    wrapped_desc = self._wrap_with_context_markers(
+                        raw_desc, start_marker, end_marker, readable
+                    )
+                    context_desc_info.append(wrapped_desc)
             except Exception as e:
                 logger.error(f"[{step_name}] 动态描述生成失败: {e}")
-
-        final_prompt = f"{prompt_template}{context_desc_info[0]}{construction_input}".strip()
-        return final_prompt
 
     def build_serial_context_batch(self, context: Dict[str, Any]) -> str:
         """
@@ -611,7 +679,13 @@ class MetaCognitiveEngine:
                 except Exception as e:
                     logger.error(f"生成字段 {key} 的描述失败 (step_type={st}): {e}")
 
-        return "\n".join(descriptions)
+        full_content = "\n".join(descriptions)
+        return self._wrap_with_context_markers(
+            full_content,
+            "### PERCEPTUAL_CONTEXT_BATCH BEGIN",
+            "### PERCEPTUAL_CONTEXT_BATCH END",
+            "批量感知层上下文"
+        )
 
     @staticmethod
     def _validate_l0(result: Dict[str, Any]) -> Tuple[bool, List[str]]:
@@ -631,7 +705,11 @@ class MetaCognitiveEngine:
 
     @staticmethod
     def _validate_l1(result: Dict[str, Any]) -> Tuple[bool, List[str]]:
-        """校验语义结构有效性（L1）"""
+        """校验语义结构有效性（L1）——每个模块必须同时满足：
+        (A) 顶层 summary（非空str）+ evidence（非空list）
+        (B) events 中至少一个 item 含 semantic_notation（非空str）+ evidence（非空list）
+        只要任一模块同时满足 A 和 B，L1 即有效。
+        """
         errors = []
         l1_valid = False
         present_but_empty = []
@@ -641,31 +719,53 @@ class MetaCognitiveEngine:
             mod = result.get(mod_name)
             if mod is None:
                 missing_or_invalid.append(f"{mod_name} (缺失)")
-            elif isinstance(mod, dict):
-                token = mod.get("semantic_notation")
-                if token and isinstance(token, str) and token.strip():
-                    l1_valid = True
-            elif isinstance(mod, list):
-                if len(mod) == 0:
-                    present_but_empty.append(f"{mod_name} (空列表)")
-                else:
-                    found_valid = False
-                    for item in mod:
+                continue
+
+            if isinstance(mod, dict):
+                # --- (A) 顶层单元必须有效 ---
+                top_summary = mod.get("summary")
+                top_evidence = mod.get("evidence")
+                top_valid = (
+                        isinstance(top_summary, str) and top_summary.strip() and
+                        isinstance(top_evidence, list) and len(top_evidence) > 0
+                )
+
+                # --- (B) events 中必须至少有一个完整事件项 ---
+                events = mod.get("events")
+                event_valid = False
+                if isinstance(events, list) and len(events) > 0:
+                    for item in events:
                         if isinstance(item, dict):
-                            token = item.get("semantic_notation")
-                            if token and isinstance(token, str) and token.strip():
-                                found_valid = True
+                            notation = item.get("semantic_notation")
+                            evi = item.get("evidence")
+                            if (
+                                    isinstance(notation, str) and notation.strip() and
+                                    isinstance(evi, list) and len(evi) > 0
+                            ):
+                                event_valid = True
                                 break
-                    if found_valid:
-                        l1_valid = True
-                    else:
-                        present_but_empty.append(f"{mod_name} (无有效 semantic_notation)")
+
+                # --- 模块有效条件：A AND B ---
+                if top_valid and event_valid:
+                    l1_valid = True
+                else:
+                    reasons = []
+                    if not top_valid:
+                        reasons.append("顶层 summary/evidence 无效")
+                    if not event_valid:
+                        reasons.append("events 中缺少含 semantic_notation+evidence 的有效项")
+                    present_but_empty.append(f"{mod_name} ({'; '.join(reasons)})")
+
+            elif isinstance(mod, list):
+                # 兼容旧结构（虽已统一为 dict，但保留）
+                # 注意：list 结构无法同时满足 A+B（无顶层字段），故视为无效
+                present_but_empty.append(f"{mod_name} (模块为列表，无法满足双重要求)")
             else:
                 missing_or_invalid.append(f"{mod_name} (类型错误: {type(mod)})")
 
         if not l1_valid:
             if present_but_empty:
-                errors.append("存在语义模块但未提取 semantic_notation: " + ", ".join(present_but_empty))
+                errors.append("存在语义模块但未同时满足顶层与事件有效性: " + ", ".join(present_but_empty))
             if missing_or_invalid:
                 errors.append("关键语义模块缺失或格式错误: " + ", ".join(missing_or_invalid))
 
@@ -673,58 +773,140 @@ class MetaCognitiveEngine:
 
     @staticmethod
     def _validate_l2(result: Dict[str, Any]) -> Tuple[bool, List[str]]:
-        """校验认知干预有效性（L2）——宽松但有底线"""
+        """校验认知干预有效性（L2）——必须同时满足：
+        1. inference 模块：顶层 summary+evidence 有效 AND events 中至少一项含 semantic_notation+evidence
+        2. explicit_motivation 模块：同上结构，同样双重要求
+        3. rational_advice 模块：summary+evidence 有效 AND 至少一个建议字段有实质内容
+        """
         errors = []
         l2_ok = True
 
-        # --- 1. inference ---
+        # -----------------------------
+        # 1. Validate inference
+        # -----------------------------
         inference = result.get("inference")
         if not isinstance(inference, dict):
             errors.append("L2: inference 缺失或非字典")
             l2_ok = False
         else:
-            sn = inference.get("semantic_notation")
-            if not (isinstance(sn, str) and sn.strip()):
-                errors.append("L2: inference.semantic_notation 缺失或为空")
-                l2_ok = False
-            # 不校验 events / evidence —— 允许缺失
+            # (A) Top-level
+            top_summary = inference.get("summary")
+            top_evidence = inference.get("evidence")
+            top_valid = (
+                    isinstance(top_summary, str) and top_summary.strip() and
+                    isinstance(top_evidence, list) and len(top_evidence) > 0
+            )
 
-        # --- 2. deep_analysis ---
-        deep_analysis = result.get("deep_analysis")
-        if not isinstance(deep_analysis, dict):
-            errors.append("L2: deep_analysis 缺失或非字典")
+            # (B) Events
+            events = inference.get("events")
+            event_valid = False
+            if isinstance(events, list):
+                for item in events:
+                    if isinstance(item, dict):
+                        sn = item.get("semantic_notation")
+                        evi = item.get("evidence")
+                        if (
+                                isinstance(sn, str) and sn.strip() and
+                                isinstance(evi, list) and len(evi) > 0
+                        ):
+                            event_valid = True
+                            break
+
+            if not (top_valid and event_valid):
+                reasons = []
+                if not top_valid:
+                    reasons.append("顶层 summary/evidence 无效")
+                if not event_valid:
+                    reasons.append("events 中无 semantic_notation+evidence 有效项")
+                errors.append(f"L2: inference 未同时满足双重要求 ({'; '.join(reasons)})")
+                l2_ok = False
+
+        # -----------------------------
+        # 2. Validate explicit_motivation
+        # -----------------------------
+        explicit_motivation = result.get("explicit_motivation")
+        if not isinstance(explicit_motivation, dict):
+            errors.append("L2: explicit_motivation 缺失或非字典")
             l2_ok = False
         else:
-            sn = deep_analysis.get("semantic_notation")
-            if not (isinstance(sn, str) and sn.strip()):
-                errors.append("L2: deep_analysis.semantic_notation 缺失或为空")
-                l2_ok = False
-            has_content = any(
-                v not in (None, "", [], {}, False)
-                for k, v in deep_analysis.items()
-                if k not in ("semantic_notation", "summary")
+            # (A) Top-level
+            top_summary = explicit_motivation.get("summary")
+            top_evidence = explicit_motivation.get("evidence")
+            top_valid = (
+                    isinstance(top_summary, str) and top_summary.strip() and
+                    isinstance(top_evidence, list) and len(top_evidence) > 0
             )
-            if not has_content:
-                errors.append("L2: deep_analysis 无实质性分析内容")
+
+            # (B) Events
+            events = explicit_motivation.get("events")
+            event_valid = False
+            if isinstance(events, list):
+                for item in events:
+                    if isinstance(item, dict):
+                        sn = item.get("semantic_notation")
+                        evi = item.get("evidence")
+                        if (
+                                isinstance(sn, str) and sn.strip() and
+                                isinstance(evi, list) and len(evi) > 0
+                        ):
+                            event_valid = True
+                            break
+
+            if not (top_valid and event_valid):
+                reasons = []
+                if not top_valid:
+                    reasons.append("顶层 summary/evidence 无效")
+                if not event_valid:
+                    reasons.append("events 中无 semantic_notation+evidence 有效项")
+                errors.append(f"L2: explicit_motivation 未同时满足双重要求 ({'; '.join(reasons)})")
                 l2_ok = False
 
-        # --- 3. rational_advice ---
+        # -----------------------------
+        # 3. Validate rational_advice
+        # -----------------------------
         rational_advice = result.get("rational_advice")
         if not isinstance(rational_advice, dict):
             errors.append("L2: rational_advice 缺失或非字典")
             l2_ok = False
         else:
-            sn = rational_advice.get("semantic_notation")
-            if not (isinstance(sn, str) and sn.strip()):
-                errors.append("L2: rational_advice.semantic_notation 缺失或为空")
-                l2_ok = False
-            has_content = any(
-                v not in (None, "", [], {}, False)
-                for k, v in rational_advice.items()
-                if k not in ("semantic_notation", "summary")
+            # rational_advice 无 events，只有顶层字段
+            summary = rational_advice.get("summary")
+            evidence = rational_advice.get("evidence")
+            has_summary_evidence = (
+                    isinstance(summary, str) and summary.strip() and
+                    isinstance(evidence, list) and len(evidence) > 0
             )
-            if not has_content:
-                errors.append("L2: rational_advice 无实质性建议内容")
+
+            # Check if any substantive advice field is non-empty
+            substantive_fields = {
+                "safety_first_intervention",
+                "systemic_leverage_point",
+                "incremental_strategy",
+                "stakeholder_tradeoffs",
+                "long_term_exit_path",
+                "cultural_adaptation_needed",
+                "fallback_plan"
+            }
+            has_substantive_content = False
+            for field in substantive_fields:
+                val = rational_advice.get(field)
+                if val not in (None, "", [], {}):
+                    # For stakeholder_tradeoffs (dict), check if it has non-empty subfields
+                    if isinstance(val, dict):
+                        if any(v not in (None, "", [], {}) for v in val.values()):
+                            has_substantive_content = True
+                            break
+                    else:
+                        has_substantive_content = True
+                        break
+
+            if not (has_summary_evidence and has_substantive_content):
+                reasons = []
+                if not has_summary_evidence:
+                    reasons.append("summary 或 evidence 无效")
+                if not has_substantive_content:
+                    reasons.append("无实质性建议内容")
+                errors.append(f"L2: rational_advice 无效 ({'; '.join(reasons)})")
                 l2_ok = False
 
         return l2_ok, errors
@@ -1012,3 +1194,279 @@ class MetaCognitiveEngine:
             logger.info("🌐 已在浏览器中打开报告", extra={"outpath": str(outpath)})
         except Exception as e:
             logger.warning("❌ 无法自动打开浏览器", extra={"error": str(e)})
+
+    def _build_participants_context_desc(self, context: Dict[str, Any]) -> str:
+        """基于合法参与者集合生成上下文描述字符串"""
+        legit_items = sorted(self._build_legitimate_participant_set(context))  # 排序保证输出稳定（便于缓存/调试）
+        if not legit_items:
+            return ""
+
+        prefix = "### LEGITIMATE_PARTICIPANTS BEGIN（合法的参与者实体或角色开始）\n"
+        suffix = "\n### LEGITIMATE_PARTICIPANTS END（合法的参与者实体或角色结束）\n"
+        return prefix + "\n".join(legit_items) + suffix
+
+    @staticmethod
+    def _build_legitimate_participant_set(context: Dict[str, Any]) -> Set[str]:
+        """从 context['participants'] 构建合法标识集合（entity + name）"""
+        participants = context.get("participants", [])
+        if not isinstance(participants, list):
+            return set()
+
+        legit_set = set()
+        for p in participants:
+            if not isinstance(p, dict):
+                continue
+            entity = p.get("entity")
+            name = p.get("name")
+            if isinstance(entity, str) and entity.strip():
+                legit_set.add(entity.strip())
+            if isinstance(name, str) and name.strip():
+                legit_set.add(name.strip())
+        return legit_set
+
+    async def _filter_perception_results_by_legitimate_participants(
+            self,
+            result: Dict[str, Any],
+            legitimate_participants: Set[str]
+    ) -> None:
+        """
+        过滤感知结果中的非法 experiencer。
+        - 仅保留 experiencer 属于 legitimate_participants 的事件；
+        - 支持两阶段解析：
+            1. 简单代词映射（如 "他" → "张三"）
+            2. LLM 批量兜底指代消解（最后手段）
+        """
+        logger.info(f"→ 进入感知结果过滤流程（合法参与者: {sorted(legitimate_participants)}）", extra={"module_name": self.CHINESE_NAME})
+
+        if not isinstance(result, dict):
+            return
+
+        step_name = result.get("step_name")
+        if step_name not in PERCEPTION_LAYERS:
+            return
+
+        data = result.get("data")
+        if not isinstance(data, dict) or not data:
+            return
+
+        try:
+            key, block = next(iter(data.items()))
+        except StopIteration:
+            return
+
+        if not (isinstance(block, dict) and isinstance(block.get("events"), list)):
+            return
+
+        original_events = block["events"]
+        if not original_events:
+            return
+
+        logger.info(
+            f"→ 待处理事件 experiencer 列表: {[e.get('experiencer') for e in original_events if isinstance(e, dict)]}",
+            extra={"module_name": self.CHINESE_NAME})
+
+        # 第一步：扫描事件，标记合法项，并收集需 LLM 消解的代词
+        valid_indices: Set[int] = set()
+        pronoun_map: Dict[int, str] = {}  # idx -> pronoun
+
+        for idx, evt in enumerate(original_events):
+            if not isinstance(evt, dict):
+                continue
+
+            exp = evt.get("experiencer")
+            if not isinstance(exp, str):
+                continue
+
+            # 情况1：已在合法名单中
+            if exp in legitimate_participants:
+                valid_indices.add(idx)
+                continue
+
+            # 情况2：尝试简单映射
+            resolved = self._try_simple_resolution(exp, legitimate_participants)
+            if resolved is not None:
+                evt["experiencer"] = resolved  # 原地更新
+                valid_indices.add(idx)
+                continue
+
+            # 情况3：需 LLM 兜底
+            pronoun_map[idx] = exp
+
+        # 第二步：批量调用 LLM 兜底（仅当有未解析项）
+        llm_resolved: Dict[int, str] = {}
+        if pronoun_map:
+            try:
+                llm_resolved = await self._perform_coreference_resolution(
+                    index_to_pronoun=pronoun_map,
+                    legitimate_participants=legitimate_participants
+                )
+            except Exception as e:
+                logger.exception(
+                    "LLM 兜底指代消解失败，跳过",
+                    extra={"error": str(e), "module_name": self.CHINESE_NAME}
+                )
+                llm_resolved = {}
+
+        # 应用 LLM 解析结果（原地更新）
+        for idx, name in llm_resolved.items():
+            if 0 <= idx < len(original_events) and isinstance(original_events[idx], dict):
+                original_events[idx]["experiencer"] = name
+                valid_indices.add(idx)
+
+        # 第三步：按原始顺序保留有效事件
+        filtered_events = [
+            original_events[i] for i in range(len(original_events)) if i in valid_indices
+        ]
+
+        # 更新 block
+        block["events"] = filtered_events
+
+        # 清理空块
+        if not filtered_events:
+            block["evidence"] = [] if isinstance(block.get("evidence"), list) else []
+            block["summary"] = "" if isinstance(block.get("summary"), str) else ""
+
+        # 日志
+        perception_type = step_name.replace("LLM_PERCEPTION_", "").replace("_EXTRACTION", "").lower()
+        removed = len(original_events) - len(filtered_events)
+        if removed > 0:
+            kept_exps = [evt.get("experiencer") for evt in filtered_events if isinstance(evt, dict)]
+            removed_exps = [
+                original_events[i].get("experiencer")
+                for i in range(len(original_events))
+                if i not in valid_indices and isinstance(original_events[i], dict)
+            ]
+            logger.info(
+                f"🧹 感知层 [{perception_type}] 过滤完成：保留 {kept_exps}，丢弃 {removed_exps}",
+                extra={"module_name": self.CHINESE_NAME}
+            )
+        else:
+            all_exps = [evt.get("experiencer") for evt in original_events if isinstance(evt, dict)]
+            logger.info(
+                f"✅ 感知层 [{perception_type}] 全部保留：{all_exps}",
+                extra={"module_name": self.CHINESE_NAME}
+            )
+
+    def _try_simple_resolution(self, experiencer: str, legitimate_participants: Set[str]) -> Optional[str]:
+        """
+        尝试将代词或模糊指称解析为具体的合法参与者。
+
+        策略：
+          1. 若已是合法名 → 返回自身
+          2. 若含 [uncertain] 标记 → 清理后判断
+          3. 若为 EXCLUDED_PRONOUNS → 返回 None（不映射）
+          4. 若为 CHINESE_PRONOUNS 且合法参与者唯一 → 映射到该唯一参与者
+          5. 其他情况 → 无法解析，返回 None
+        """
+        logger.debug(f"→ 尝试简单指代解析: '{experiencer}'", extra={"module_name": self.CHINESE_NAME})
+
+        if not isinstance(experiencer, str) or not legitimate_participants:
+            return None
+
+        # 已是合法参与者
+        if experiencer in legitimate_participants:
+            return experiencer
+
+        # 清理可能的 uncertain 标记（兼容 LLM 输出）
+        clean_exp = experiencer
+        if "[uncertain]" in clean_exp:
+            clean_exp = clean_exp.replace("[uncertain]", "").strip()
+        if "(uncertain)" in clean_exp:
+            clean_exp = clean_exp.replace("(uncertain)", "").strip()
+
+        # 再一次判断，避免极端情况
+        if clean_exp in legitimate_participants:
+            logger.debug(f"← 清理后匹配合法参与者: '{clean_exp}'", extra={"module_name": self.CHINESE_NAME})
+            return clean_exp
+
+        # 明确排除的代词（如“别人”）→ 不映射
+        if clean_exp in EXCLUDED_PRONOUNS:
+            return None
+
+        # 可尝试映射的代词
+        if clean_exp in CHINESE_PRONOUNS:
+            # 仅当合法参与者唯一时，才安全映射
+            if len(legitimate_participants) == 1:
+                resolved = next(iter(legitimate_participants))
+                logger.debug(f"← 代词映射成功: '{experiencer}' → '{resolved}'", extra={"module_name": self.CHINESE_NAME})
+                return resolved
+            else:
+                # 多人场景，无法确定 → 不映射
+                return None
+
+        # 非代词且非合法名 → 无法处理
+        return None
+
+    async def _perform_coreference_resolution(
+            self,
+            index_to_pronoun: Dict[int, str],
+            legitimate_participants: Set[str]
+    ) -> Dict[int, str]:
+        """
+        执行批量指代消解，直接调用 bottom_dissolving_pronouns。
+
+        输入：{原始事件索引 -> 代词}
+        输出：{原始事件索引 -> 确定的合法参与者名}（不确定的不返回）
+        """
+        logger.info(f"→ 启动 LLM 指代消解（待解析代词: {list(index_to_pronoun.values())}）",
+                    extra={"module_name": self.CHINESE_NAME})
+
+        if not index_to_pronoun or not legitimate_participants:
+            return {}
+
+        # 构造 prompt
+        try:
+            prompt = self.prompter._build_coref_prompt(
+                user_input=self.user_input,
+                legitimate_participants=legitimate_participants,
+                index_to_pronoun=index_to_pronoun
+            )
+        except Exception as e:
+            logger.warning(
+                "构建指代消解 prompt 异常",
+                extra={"error": str(e), "module_name": self.CHINESE_NAME}
+            )
+            return {}
+
+        try:
+            backend = await self.backend
+            resolved_from_llm: Dict[int, str] = await backend.bottom_dissolving_pronouns(
+                prompt=prompt,
+                model=self.llm_model,
+                params=self.recommended_params
+            )
+        except Exception as e:
+            logger.exception(
+                "调用 bottom_dissolving_pronouns 异常",
+                extra={"error": str(e), "module_name": self.CHINESE_NAME}
+            )
+            return {}
+
+        # 底层已保证：resolved_from_llm 是合法 dict，失败时返回 {}
+        # 我们只需做最终校验：key 是否在输入中，value 是否在合法名单里
+        resolved_map: Dict[int, str] = {}
+        for idx, name in resolved_from_llm.items():
+            if isinstance(idx, int) and isinstance(name, str):
+                if idx in index_to_pronoun and name in legitimate_participants:
+                    resolved_map[idx] = name
+
+        logger.info(f"← LLM 消解结果: {resolved_map}", extra={"module_name": self.CHINESE_NAME})
+        return resolved_map
+
+    @staticmethod
+    def _wrap_with_context_markers(
+            content: str,
+            start_marker: str,
+            end_marker: str,
+            human_readable_name: str = ""
+    ) -> str:
+        """统一包装上下文片段，带可配置边界"""
+        if not content.strip():
+            return ""
+        readable_start = f"（{human_readable_name}开始）" if human_readable_name else ""
+        readable_end = f"（{human_readable_name}结束）" if human_readable_name else ""
+        return (
+            f"{start_marker}{readable_start}\n"
+            f"{content.strip()}\n"
+            f"{end_marker}{readable_end}\n"
+        )

@@ -33,6 +33,11 @@ class LLMBackend(ABC):
         pass
 
     @abstractmethod
+    async def bottom_dissolving_pronouns(self, prompt: str, model: str, params: dict) -> Dict[int, str]:
+        """异步兜底消解代词指称，返回 {index: name} 映射，失败时返回空 dict"""
+        pass
+
+    @abstractmethod
     async def close(self):
         """关闭客户端资源（必须显式调用）"""
         pass

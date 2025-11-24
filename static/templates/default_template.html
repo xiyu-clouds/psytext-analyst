@@ -188,7 +188,7 @@
             <p><span class="field-label">AI 生成：</span>{{ '是' if data.meta.created_by_ai else '否' }}</p>
             <p><span class="field-label">模型版本：</span>{{ data.meta.llm_model or '未知' }}</p>
             <p><span class="field-label">库版本：</span>{{ data.meta.library_version or '未知' }}</p>
-            <p><span class="field-label">叙事增强：</span>{{ '已启用' if data.meta.narrative_enriched else '未启用' }}</p>
+<!--            <p><span class="field-label">叙事增强：</span>{{ '已启用' if data.meta.narrative_enriched else '未启用' }}</p>-->
 
             <!-- 后续注入字段 -->
             {% if data.meta.validity_level %}
@@ -205,55 +205,112 @@
         {% if data.get('participants') %}
         <div class="section">
             <h3>1. 参与者信息</h3>
-            {% for p in data.participants %}
-            <div class="subsection" style="margin-bottom: 24px; padding: 12px; border-left: 2px solid #4a90e2; background: #f9fbfd;">
-                <!-- 唯一标识符（调试用，可选显示） -->
-                {% if p.get('entity') %}
-                <p><span class="field-label">ID：</span><code>{{ p.entity_id }}</code></p>
-                {% endif %}
+            <details class="details-block">
+                <summary>🔍 展开参与者解析详情</summary>
+                <div class="subsection" style="margin-top: 16px;">
+                    {% for p in data.participants %}
+                    <div style="margin-bottom: 24px; padding: 12px; border-left: 2px solid #4a90e2; background: #f9fbfd;">
+                        <!-- 核心标识 -->
+                        <p><span class="field-label">原始指称：</span><code>{{ p.entity }}</code></p>
 
-                <!-- 基本身份 -->
-                {% if p.get('name') %}<p><span class="field-label">姓名/称呼：</span>{{ p.name }}</p>{% endif %}
-                {% if p.get('social_role') %}<p><span class="field-label">社会角色：</span>{{ p.social_role }}</p>{% endif %}
-                {% if p.get('age_range') %}<p><span class="field-label">年龄范围：</span>{{ p.age_range }}</p>{% endif %}
-                {% if p.get('gender') %}<p><span class="field-label">性别：</span>{{ p.gender }}</p>{% endif %}
-                {% if p.get('ethnicity_or_origin') %}<p><span class="field-label">族群/出身：</span>{{ p.ethnicity_or_origin }}</p>{% endif %}
+                        <!-- 身份与社会属性（仅当任一字段存在时显示） -->
+                        {% set has_identity = [
+                            p.get('occupation'),
+                            p.get('social_role'),
+                            p.get('family_status'),
+                            p.get('institutional_affiliation'),
+                            p.get('education_level'),
+                            p.get('primary_language'),
+                            p.get('cultural_identity'),
+                            p.get('beliefs_or_values')
+                        ] | select | list %}
+                        {% if has_identity %}
+                        <details class="details-block" style="margin-top: 8px;">
+                            <summary>🧾 身份与社会属性</summary>
+                            <div style="margin-top: 6px; padding-left: 12px; border-left: 1px dashed #ccc;">
+                                {% if p.get('occupation') %}<p><span class="field-label">职业身份：</span>{{ p.occupation }}</p>{% endif %}
+                                {% if p.get('social_role') %}<p><span class="field-label">社会关系角色：</span>{{ p.social_role }}</p>{% endif %}
+                                {% if p.get('family_status') %}<p><span class="field-label">家庭状态：</span>{{ p.family_status }}</p>{% endif %}
+                                {% if p.get('institutional_affiliation') %}<p><span class="field-label">所属机构：</span>{{ p.institutional_affiliation | join(', ') }}</p>{% endif %}
+                                {% if p.get('education_level') %}<p><span class="field-label">教育程度：</span>{{ p.education_level }}</p>{% endif %}
+                                {% if p.get('primary_language') %}<p><span class="field-label">主要使用语言：</span>{{ p.primary_language }}</p>{% endif %}
+                                {% if p.get('cultural_identity') %}<p><span class="field-label">文化/族群认同：</span>{{ p.cultural_identity | join(', ') }}</p>{% endif %}
+                                {% if p.get('beliefs_or_values') %}<p><span class="field-label">明确陈述的信念或价值观：</span>{{ p.beliefs_or_values }}</p>{% endif %}
+                            </div>
+                        </details>
+                        {% endif %}
 
-                <!-- 生理与感官特征（折叠） -->
-                <details class="details-block" style="margin-top: 8px;">
-                    <summary>👁️ 生理与感官特征</summary>
-                    <div style="margin-top: 6px; padding-left: 12px; border-left: 1px dashed #ccc;">
-                        {% if p.get('physical_traits') %}<p><span class="field-label">生理特征：</span>{{ p.physical_traits | join(', ') }}</p>{% endif %}
-                        {% if p.get('appearance') %}<p><span class="field-label">外貌特征：</span>{{ p.appearance | join(', ') }}</p>{% endif %}
-                        {% if p.get('baseline_health') %}<p><span class="field-label">基础健康：</span>{{ p.baseline_health }}</p>{% endif %}
-                        {% if p.get('inherent_odor') %}<p><span class="field-label">固有气味：</span>{{ p.inherent_odor | join(', ') }}</p>{% endif %}
-                        {% if p.get('voice_quality') %}<p><span class="field-label">嗓音特质：</span>{{ p.voice_quality }}</p>{% endif %}
+                        <!-- 生物与生理特征（仅当任一字段存在时显示） -->
+                        {% set has_bio = [
+                            p.get('gender'),
+                            p.get('age_range'),
+                            p.get('ethnicity_or_origin'),
+                            p.get('physical_traits')
+                        ] | select | list %}
+                        {% if has_bio %}
+                        <details class="details-block" style="margin-top: 8px;">
+                            <summary>🧬 生物与生理特征</summary>
+                            <div style="margin-top: 6px; padding-left: 12px; border-left: 1px dashed #ccc;">
+                                {% if p.get('gender') %}<p><span class="field-label">性别标识：</span>{{ p.gender }}</p>{% endif %}
+                                {% if p.get('age_range') %}<p><span class="field-label">年龄阶段：</span>{{ p.age_range }}</p>{% endif %}
+                                {% if p.get('ethnicity_or_origin') %}<p><span class="field-label">地域或族群来源：</span>{{ p.ethnicity_or_origin }}</p>{% endif %}
+                                {% if p.get('physical_traits') %}<p><span class="field-label">长期生理特征：</span>{{ p.physical_traits | join(', ') }}</p>{% endif %}
+                            </div>
+                        </details>
+                        {% endif %}
+
+                        <!-- 当前外显状态（仅当任一字段存在时显示） -->
+                        {% set has_state = [
+                            p.get('appearance'),
+                            p.get('current_physical_state'),
+                            p.get('visible_injury_or_wound'),
+                            p.get('carried_objects'),
+                            p.get('worn_technology'),
+                            p.get('inherent_odor'),
+                            p.get('voice_quality'),
+                            p.get('speech_pattern')
+                        ] | select | list %}
+                        {% if has_state %}
+                        <details class="details-block" style="margin-top: 8px;">
+                            <summary>👁️ 当前外显状态</summary>
+                            <div style="margin-top: 6px; padding-left: 12px; border-left: 1px dashed #ccc;">
+                                {% if p.get('appearance') %}<p><span class="field-label">外显特征：</span>{{ p.appearance | join(', ') }}</p>{% endif %}
+                                {% if p.get('current_physical_state') %}<p><span class="field-label">当前身体/情绪状态：</span>{{ p.current_physical_state }}</p>{% endif %}
+                                {% if p.get('visible_injury_or_wound') %}<p><span class="field-label">可见伤痕或医疗痕迹：</span>{{ p.visible_injury_or_wound | join(', ') }}</p>{% endif %}
+                                {% if p.get('carried_objects') %}<p><span class="field-label">持有物品：</span>{{ p.carried_objects | join(', ') }}</p>{% endif %}
+                                {% if p.get('worn_technology') %}<p><span class="field-label">佩戴的电子设备：</span>{{ p.worn_technology | join(', ') }}</p>{% endif %}
+                                {% if p.get('inherent_odor') %}<p><span class="field-label">相关气味：</span>{{ p.inherent_odor | join(', ') }}</p>{% endif %}
+                                {% if p.get('voice_quality') %}<p><span class="field-label">嗓音特征：</span>{{ p.voice_quality }}</p>{% endif %}
+                                {% if p.get('speech_pattern') %}<p><span class="field-label">言语模式：</span>{{ p.speech_pattern }}</p>{% endif %}
+                            </div>
+                        </details>
+                        {% endif %}
+
+                        <!-- 心理与行为倾向（仅当任一字段存在时显示） -->
+                        {% set has_psych = [
+                            p.get('personality_traits'),
+                            p.get('behavioral_tendencies')
+                        ] | select | list %}
+                        {% if has_psych %}
+                        <details class="details-block" style="margin-top: 8px;">
+                            <summary>🧠 心理与行为倾向</summary>
+                            <div style="margin-top: 6px; padding-left: 12px; border-left: 1px dashed #ccc;">
+                                {% if p.get('personality_traits') %}<p><span class="field-label">人格特质陈述：</span>{{ p.personality_traits | join(', ') }}</p>{% endif %}
+                                {% if p.get('behavioral_tendencies') %}<p><span class="field-label">习惯性行为：</span>{{ p.behavioral_tendencies | join(', ') }}</p>{% endif %}
+                            </div>
+                        </details>
+                        {% endif %}
+
+                        <!-- 事件中的功能角色（高亮显示） -->
+                        {% if p.get('interaction_role') %}
+                        <p style="margin-top: 12px; padding: 8px; background-color: #fff8e1; border-radius: 4px;">
+                            <span class="field-label">📌 事件功能角色：</span>{{ p.interaction_role }}
+                        </p>
+                        {% endif %}
                     </div>
-                </details>
-
-                <!-- 心理与行为特征（折叠） -->
-                <details class="details-block" style="margin-top: 8px;">
-                    <summary>🧠 心理与行为倾向</summary>
-                    <div style="margin-top: 6px; padding-left: 12px; border-left: 1px dashed #ccc;">
-                        {% if p.get('affective_orientation') %}<p><span class="field-label">情感依恋风格：</span>{{ p.affective_orientation | join(', ') }}</p>{% endif %}
-                        {% if p.get('personality_traits') %}<p><span class="field-label">人格特质：</span>{{ p.personality_traits | join(', ') }}</p>{% endif %}
-                        {% if p.get('behavioral_tendencies') %}<p><span class="field-label">行为倾向：</span>{{ p.behavioral_tendencies | join(', ') }}</p>{% endif %}
-                    </div>
-                </details>
-
-                <!-- 社会文化背景（折叠） -->
-                <details class="details-block" style="margin-top: 8px;">
-                    <summary>🌍 社会文化背景</summary>
-                    <div style="margin-top: 6px; padding-left: 12px; border-left: 1px dashed #ccc;">
-                        {% if p.get('education_level') %}<p><span class="field-label">教育程度：</span>{{ p.education_level }}</p>{% endif %}
-                        {% if p.get('occupation') %}<p><span class="field-label">职业：</span>{{ p.occupation }}</p>{% endif %}
-                        {% if p.get('socioeconomic_status') %}<p><span class="field-label">社会经济地位：</span>{{ p.socioeconomic_status }}</p>{% endif %}
-                        {% if p.get('cultural_identity') %}<p><span class="field-label">文化身份：</span>{{ p.cultural_identity | join(', ') }}</p>{% endif %}
-                        {% if p.get('primary_language') %}<p><span class="field-label">主要语言：</span>{{ p.primary_language }}</p>{% endif %}
-                    </div>
-                </details>
-            </div>
-            {% endfor %}
+                    {% endfor %}
+                </div>
+            </details>
         </div>
         {% endif %}
 
@@ -267,51 +324,67 @@
                 <p><span class="field-label">时间摘要：</span>{{ data.temporal.summary }}</p>
                 {% endif %}
 
-                <!-- 折叠详情（含全部字段 + evidence + semantic_notation） -->
+                <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>🔍 展开时间解析详情（含原文证据与语义标识）</summary>
+                    <summary>🔍 展开时间解析详情（含全局证据、语义标识与事件细节）</summary>
                     <div class="details-content">
 
-                        {% if data.temporal.get('exact_literals') %}
-                        <p><span class="field-label">精确时间：</span>{{ data.temporal.exact_literals | join(', ') }}</p>
-                        {% endif %}
-
-                        {% if data.temporal.get('relative_expressions') %}
-                        <p><span class="field-label">模糊/相对时间表达：</span>{{ data.temporal.relative_expressions | join(', ') }}</p>
-                        {% endif %}
-
-                        {% if data.temporal.get('reference_anchor') %}
-                        <p><span class="field-label">时间锚点：</span>{{ data.temporal.reference_anchor }}</p>
-                        {% endif %}
-
-                        {% if data.temporal.get('time_ranges') %}
-                        <p><span class="field-label">时间区间：</span>{{ data.temporal.time_ranges | join('; ') }}</p>
-                        {% endif %}
-
-                        {% if data.temporal.get('durations') %}
-                        <p><span class="field-label">持续时长：</span>{{ data.temporal.durations | join(', ') }}</p>
-                        {% endif %}
-
-                        {% if data.temporal.get('frequencies') %}
-                        <p><span class="field-label">频率/周期性：</span>{{ data.temporal.frequencies | join(', ') }}</p>
-                        {% endif %}
-
-                        {% if data.temporal.get('experiencer') %}
-                        <p><span class="field-label">时间主体：</span>{{ data.temporal.experiencer }}</p>
-                        {% endif %}
-
-                        <!-- 新增：证据片段 -->
+                        <!-- 全局原文证据（始终显示，带说明） -->
                         {% if data.temporal.get('evidence') %}
-                        <p><span class="field-label">原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整个时间判断的原始文本片段）</small><br>
                             {% for frag in data.temporal.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
                         {% endif %}
 
-                        <!-- 新增：语义标识 -->
-                        {% if data.temporal.get('semantic_notation') %}
-                        <p><span class="field-label">语义标识：</span><code>{{ data.temporal.semantic_notation }}</code></p>
+                        <!-- 时间事件列表 -->
+                        {% if data.temporal.get('events') and data.temporal.events %}
+                        <h4 style="margin-top: 16px; margin-bottom: 10px;">时间事件详情（共 {{ data.temporal.events | length }} 项）</h4>
+                        {% for ev in data.temporal.events %}
+                        <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
+
+                            <!-- 核心时间信息 -->
+                            {% if ev.get('semantic_notation') %}<p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>{% endif %}
+                            {% if ev.get('experiencer') %}<p><span class="field-label">陈述主体：</span>{{ ev.experiencer }}</p>{% endif %}
+                            {% if ev.get('exact_literals') %}<p><span class="field-label">精确时间：</span>{{ ev.exact_literals | join(', ') }}</p>{% endif %}
+                            {% if ev.get('time_ranges') %}<p><span class="field-label">时间区间：</span>{{ ev.time_ranges | join('; ') }}</p>{% endif %}
+                            {% if ev.get('durations') %}<p><span class="field-label">持续时长：</span>{{ ev.durations | join(', ') }}</p>{% endif %}
+                            {% if ev.get('frequencies') %}<p><span class="field-label">频率/周期性：</span>{{ ev.frequencies | join(', ') }}</p>{% endif %}
+                            {% if ev.get('seasonal_or_cultural_time') %}<p><span class="field-label">节令/文化时间：</span>{{ ev.seasonal_or_cultural_time | join(', ') }}</p>{% endif %}
+                            {% if ev.get('temporal_anchor') %}<p><span class="field-label">时间参考锚点：</span>{{ ev.temporal_anchor }}</p>{% endif %}
+
+                            <!-- 模糊与否定表达 -->
+                            {% if ev.get('relative_expressions') or ev.get('negated_time') or ev.get('uncertainty_modifiers') %}
+                            {% if ev.get('relative_expressions') %}<p><span class="field-label">相对/模糊时间：</span>{{ ev.relative_expressions | join(', ') }}</p>{% endif %}
+                            {% if ev.get('negated_time') %}<p><span class="field-label">被否定的时间：</span>{{ ev.negated_time | join(', ') }}</p>{% endif %}
+                            {% if ev.get('uncertainty_modifiers') %}<p><span class="field-label">不确定性修饰语：</span>{{ ev.uncertainty_modifiers | join(', ') }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 语言与上下文线索 -->
+                            {% if ev.get('event_markers') or ev.get('tense_aspect') %}
+                            {% if ev.get('event_markers') %}<p><span class="field-label">事件关键词：</span>{{ ev.event_markers | join(', ') }}</p>{% endif %}
+                            {% if ev.get('tense_aspect') %}<p><span class="field-label">时体标记：</span>{{ ev.tense_aspect }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 事件级证据（折叠） -->
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 10px;">
+                                <summary>📄 查看本事件依据</summary>
+                                <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
+                                    <p><span class="field-label">事件证据：</span>
+                                        {% for frag in ev.evidence %}
+                                        <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
+                                        {% endfor %}
+                                    </p>
+                                </div>
+                            </details>
+                            {% endif %}
+
+                        </div>
+                        {% endfor %}
                         {% endif %}
 
                     </div>
@@ -332,47 +405,76 @@
 
                 <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>🔍 展开空间解析详情（含原文证据、语义标识与关系细节）</summary>
+                    <summary>🔍 展开空间解析详情（含全局证据、语义标识与关系细节）</summary>
                     <div class="details-content">
 
-                        <!-- 全局字段 -->
-                        {% if data.spatial.get('places') %}
-                        <p><span class="field-label">地点：</span>{{ data.spatial.places | join(', ') }}</p>
-                        {% endif %}
-
-                        {% if data.spatial.get('layout_descriptions') %}
-                        <p><span class="field-label">空间布局：</span>{{ data.spatial.layout_descriptions | join('; ') }}</p>
-                        {% endif %}
-
-                        {% if data.spatial.get('experiencer') %}
-                        <p><span class="field-label">空间主体：</span>{{ data.spatial.experiencer }}</p>
-                        {% endif %}
-
-                        <!-- 新增：全局证据与语义标识 -->
+                        <!-- 全局原文证据（始终显示，带说明） -->
                         {% if data.spatial.get('evidence') %}
-                        <p><span class="field-label">原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整个空间判断的原始文本片段）</small><br>
                             {% for frag in data.spatial.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
                         {% endif %}
 
-                        {% if data.spatial.get('semantic_notation') %}
-                        <p><span class="field-label">语义标识：</span><code>{{ data.spatial.semantic_notation }}</code></p>
-                        {% endif %}
+                        <!-- 空间事件列表 -->
+                        {% if data.spatial.get('events') and data.spatial.events %}
+                        <h4 style="margin-top: 16px; margin-bottom: 10px;">空间事件详情（共 {{ data.spatial.events | length }} 项）</h4>
+                        {% for ev in data.spatial.events %}
+                        <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
 
-                        <!-- 空间关系列表 -->
-                        {% if data.spatial.get('proximity_relations') and data.spatial.proximity_relations %}
-                        <h4 style="margin-top: 16px; margin-bottom: 10px;">空间关系详情</h4>
-                        {% for rel in data.spatial.proximity_relations %}
-                        <div class="relation-item" style="padding: 8px; background: #f9f9f9; border-radius: 6px; margin-bottom: 10px;">
-                            {% if rel.get('actor') %}<p><span class="field-label">主动方：</span>{{ rel.actor }}</p>{% endif %}
-                            {% if rel.get('target') %}<p><span class="field-label">目标方：</span>{{ rel.target }}</p>{% endif %}
-                            {% if rel.get('distance_cm') is not none %}<p><span class="field-label">距离（cm）：</span>{{ rel.distance_cm }}</p>{% endif %}
-                            {% if rel.get('medium') %}<p><span class="field-label">媒介：</span>{{ rel.medium | join(', ') }}</p>{% endif %}
-                            {% if rel.get('channel') %}<p><span class="field-label">渠道：</span>{{ rel.channel | join(', ') }}</p>{% endif %}
-                            {% if rel.get('barrier') %}<p><span class="field-label">障碍物：</span>{{ rel.barrier | join(', ') }}</p>{% endif %}
-                            {% if rel.get('relation_type') %}<p><span class="field-label">关系类型：</span>{{ rel.relation_type }}</p>{% endif %}
+                            <!-- 核心地点信息 -->
+                            {% if ev.get('semantic_notation') %}<p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>{% endif %}
+                            {% if ev.get('experiencer') %}<p><span class="field-label">陈述主体：</span>{{ ev.experiencer }}</p>{% endif %}
+                            {% if ev.get('places') %}<p><span class="field-label">地点：</span>{{ ev.places | join(', ') }}</p>{% endif %}
+                            {% if ev.get('negated_places') %}<p><span class="field-label">被否定的地点：</span>{{ ev.negated_places | join(', ') }}</p>{% endif %}
+                            {% if ev.get('cultural_or_institutional_spaces') %}<p><span class="field-label">制度性/文化空间：</span>{{ ev.cultural_or_institutional_spaces | join(', ') }}</p>{% endif %}
+
+                            <!-- 空间描述 -->
+                            {% if ev.get('layout_descriptions') or ev.get('orientation_descriptions') %}
+                            {% if ev.get('layout_descriptions') %}<p><span class="field-label">空间布局：</span>{{ ev.layout_descriptions | join('; ') }}</p>{% endif %}
+                            {% if ev.get('orientation_descriptions') %}<p><span class="field-label">方向/朝向：</span>{{ ev.orientation_descriptions | join('; ') }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 语言与上下文线索 -->
+                            {% if ev.get('spatial_event_markers') %}
+                            <p><span class="field-label">事件关键词：</span>{{ ev.spatial_event_markers | join(', ') }}</p>
+                            {% endif %}
+
+                            <!-- 空间关系列表（作为子模块，折叠展示） -->
+                            {% if ev.get('proximity_relations') and ev.proximity_relations %}
+                            <details class="details-block" style="margin-top: 10px;">
+                                <summary>🔍 展开空间关系详情（共 {{ ev.proximity_relations | length }} 项）</summary>
+                                <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
+                                    {% for rel in ev.proximity_relations %}
+                                    <div class="relation-item" style="padding: 8px; background: #fff0f0; border-radius: 5px; margin-bottom: 8px; font-size: 0.95em;">
+                                        {% if rel.get('actor') %}<p><span class="field-label">主动方：</span>{{ rel.actor }}</p>{% endif %}
+                                        {% if rel.get('target') %}<p><span class="field-label">目标方：</span>{{ rel.target }}</p>{% endif %}
+                                        {% if rel.get('relation_type') %}<p><span class="field-label">关系类型：</span>{{ rel.relation_type }}</p>{% endif %}
+                                        {% if rel.get('distance_cm') is not none %}<p><span class="field-label">距离（cm）：</span>{{ rel.distance_cm }}</p>{% endif %}
+                                        {% if rel.get('modifiers') %}<p><span class="field-label">修饰成分：</span>{{ rel.modifiers | join(', ') }}</p>{% endif %}
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </details>
+                            {% endif %}
+
+                            <!-- 事件级证据（折叠） -->
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 10px;">
+                                <summary>📄 查看本事件依据</summary>
+                                <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
+                                    <p><span class="field-label">事件证据：</span>
+                                        {% for frag in ev.evidence %}
+                                        <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
+                                        {% endfor %}
+                                    </p>
+                                </div>
+                            </details>
+                            {% endif %}
+
                         </div>
                         {% endfor %}
                         {% endif %}
@@ -400,15 +502,13 @@
 
                         <!-- 全局字段 -->
                         {% if data.visual.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整个视觉判断的原始文本片段）</small><br>
                             {% for frag in data.visual.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
-                        {% endif %}
-
-                        {% if data.visual.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.visual.semantic_notation }}</code></p>
                         {% endif %}
 
                         <!-- 视觉事件列表 -->
@@ -417,7 +517,8 @@
                         {% for ev in data.visual.events %}
                         <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
 
-                            <!-- 核心字段（始终显示） -->
+                            <!-- 核心观察字段（含 salience） -->
+                            {% if ev.get('semantic_notation') %}<p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>{% endif %}
                             {% if ev.get('experiencer') %}<p><span class="field-label">观察者：</span>{{ ev.experiencer }}</p>{% endif %}
                             {% if ev.get('observed_entity') %}<p><span class="field-label">被观察对象：</span>{{ ev.observed_entity }}</p>{% endif %}
                             {% if ev.get('visual_objects') %}<p><span class="field-label">可见物体：</span>{{ ev.visual_objects | join(', ') }}</p>{% endif %}
@@ -426,23 +527,26 @@
                             {% if ev.get('gaze_target') %}<p><span class="field-label">注视目标：</span>{{ ev.gaze_target }}</p>{% endif %}
                             {% if ev.get('eye_contact') %}<p><span class="field-label">眼神交互：</span>{{ ev.eye_contact | join(', ') }}</p>{% endif %}
                             {% if ev.get('facial_cues') %}<p><span class="field-label">面部线索：</span>{{ ev.facial_cues | join(', ') }}</p>{% endif %}
-                            {% if ev.get('salience') is not none %}<p><span class="field-label">显著性：</span>{{ "%.2f"|format(ev.salience) }}</p>{% endif %}
+                            {% if ev.get('negated_observations') %}<p><span class="field-label">被否定的观察：</span>{{ ev.negated_observations | join(', ') }}</p>{% endif %}
+                            {% if ev.get('salience') is not none %}<p><span class="field-label">显著性：</span>{{ "%.1f"|format(ev.salience) }}</p>{% endif %}
+
+                            <!-- 感知条件与视线限制（原“环境与约束条件”） -->
+                            {% if ev.get('lighting_conditions') or ev.get('visual_medium') or ev.get('occlusion_or_obstruction') %}
+                            {% if ev.get('lighting_conditions') %}<p><span class="field-label">光照条件：</span>{{ ev.lighting_conditions | join(', ') }}</p>{% endif %}
+                            {% if ev.get('visual_medium') %}<p><span class="field-label">视觉媒介：</span>{{ ev.visual_medium | join(', ') }}</p>{% endif %}
+                            {% if ev.get('occlusion_or_obstruction') %}<p><span class="field-label">遮挡/阻碍：</span>{{ ev.occlusion_or_obstruction | join(', ') }}</p>{% endif %}
+                            {% endif %}
 
                             <!-- 事件级证据与语义（折叠） -->
-                            {% if ev.get('evidence') or ev.get('semantic_notation') %}
-                            <details class="details-block" style="margin-top: 8px;">
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 10px;">
                                 <summary>📄 查看本事件依据</summary>
                                 <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
-                                    {% if ev.get('evidence') %}
                                     <p><span class="field-label">事件证据：</span>
                                         {% for frag in ev.evidence %}
                                         <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                                         {% endfor %}
                                     </p>
-                                    {% endif %}
-                                    {% if ev.get('semantic_notation') %}
-                                    <p><span class="field-label">事件语义：</span><code>{{ ev.semantic_notation }}</code></p>
-                                    {% endif %}
                                 </div>
                             </details>
                             {% endif %}
@@ -469,20 +573,18 @@
 
                 <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>🔊 展开听觉解析详情（含全局证据、语义标识与事件细节）</summary>
+                    <summary>🔍 展开听觉解析详情（含全局证据、语义标识与事件细节）</summary>
                     <div class="details-content">
 
-                        <!-- 全局字段 -->
+                        <!-- 全局原文证据（始终显示，带说明） -->
                         {% if data.auditory.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整个听觉判断的原始文本片段）</small><br>
                             {% for frag in data.auditory.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
-                        {% endif %}
-
-                        {% if data.auditory.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.auditory.semantic_notation }}</code></p>
                         {% endif %}
 
                         <!-- 听觉事件列表 -->
@@ -491,35 +593,46 @@
                         {% for ev in data.auditory.events %}
                         <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
 
-                            <!-- 核心字段（始终显示） -->
-                            {% if ev.get('experiencer') %}<p><span class="field-label">听者：</span>{{ ev.experiencer }}</p>{% endif %}
+                            <!-- 核心听觉要素 -->
+                            {% if ev.get('semantic_notation') %}<p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>{% endif %}
+                            {% if ev.get('experiencer') %}<p><span class="field-label">感知主体：</span>{{ ev.experiencer }}</p>{% endif %}
                             {% if ev.get('sound_source') %}<p><span class="field-label">声源：</span>{{ ev.sound_source }}</p>{% endif %}
                             {% if ev.get('auditory_content') %}<p><span class="field-label">听觉内容：</span>{{ ev.auditory_content | join(', ') }}</p>{% endif %}
                             {% if ev.get('is_primary_focus') is not none %}
-                                <p><span class="field-label">是否为听觉焦点：</span>
-                                    {% if ev.is_primary_focus %}✅ 是{% else %}❌ 否{% endif %}
-                                </p>
+                                <p><span class="field-label">是否为听觉焦点：</span>{{ '是' if ev.is_primary_focus else '否' }}</p>
                             {% endif %}
-                            {% if ev.get('rhetorical_patterns') %}<p><span class="field-label">修辞结构：</span>{{ ev.rhetorical_patterns | join(', ') }}</p>{% endif %}
-                            {% if ev.get('prosody_cues') %}<p><span class="field-label">语调特征：</span>{{ ev.prosody_cues | join(', ') }}</p>{% endif %}
-                            {% if ev.get('pause_description') %}<p><span class="field-label">停顿描述：</span>{{ ev.pause_description }}</p>{% endif %}
-                            {% if ev.get('intensity') is not none %}<p><span class="field-label">感知强度：</span>{{ "%.2f"|format(ev.intensity) }}</p>{% endif %}
 
-                            <!-- 事件级证据与语义（折叠） -->
-                            {% if ev.get('evidence') or ev.get('semantic_notation') %}
-                            <details class="details-block" style="margin-top: 8px;">
+                            <!-- 声音特征 -->
+                            {% if ev.get('prosody_cues') or ev.get('pause_description') or ev.get('intensity') is not none %}
+                            {% if ev.get('prosody_cues') %}<p><span class="field-label">语调/韵律特征：</span>{{ ev.prosody_cues | join(', ') }}</p>{% endif %}
+                            {% if ev.get('pause_description') %}<p><span class="field-label">停顿描述：</span>{{ ev.pause_description }}</p>{% endif %}
+                            {% if ev.get('intensity') is not none %}
+                                <p><span class="field-label">感知强度：</span>{{ "%.1f"|format(ev.intensity) }}（0.0–1.0 量化值）</p>
+                            {% endif %}
+                            {% endif %}
+
+                            <!-- 环境与媒介 -->
+                            {% if ev.get('auditory_medium') or ev.get('background_sounds') or ev.get('nonverbal_sounds') %}
+                            {% if ev.get('auditory_medium') %}<p><span class="field-label">听觉媒介：</span>{{ ev.auditory_medium | join(', ') }}</p>{% endif %}
+                            {% if ev.get('background_sounds') %}<p><span class="field-label">背景声音：</span>{{ ev.background_sounds | join(', ') }}</p>{% endif %}
+                            {% if ev.get('nonverbal_sounds') %}<p><span class="field-label">非语言声音：</span>{{ ev.nonverbal_sounds | join(', ') }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 否定观察 -->
+                            {% if ev.get('negated_observations') %}
+                            <p><span class="field-label">否定观察：</span>{{ ev.negated_observations | join(', ') }}</p>
+                            {% endif %}
+
+                            <!-- 事件级证据（折叠） -->
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 10px;">
                                 <summary>📄 查看本事件依据</summary>
                                 <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
-                                    {% if ev.get('evidence') %}
                                     <p><span class="field-label">事件证据：</span>
                                         {% for frag in ev.evidence %}
                                         <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                                         {% endfor %}
                                     </p>
-                                    {% endif %}
-                                    {% if ev.get('semantic_notation') %}
-                                    <p><span class="field-label">事件语义：</span><code>{{ ev.semantic_notation }}</code></p>
-                                    {% endif %}
                                 </div>
                             </details>
                             {% endif %}
@@ -546,20 +659,18 @@
 
                 <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>👃 展开嗅觉解析详情（含全局证据、语义标识与事件细节）</summary>
+                    <summary>🔍 展开嗅觉解析详情（含全局证据、语义标识与事件细节）</summary>
                     <div class="details-content">
 
-                        <!-- 全局字段 -->
+                        <!-- 全局原文证据（始终显示 + 说明） -->
                         {% if data.olfactory.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整个嗅觉判断的原始文本片段）</small><br>
                             {% for frag in data.olfactory.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
-                        {% endif %}
-
-                        {% if data.olfactory.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.olfactory.semantic_notation }}</code></p>
                         {% endif %}
 
                         <!-- 嗅觉事件列表 -->
@@ -568,27 +679,41 @@
                         {% for ev in data.olfactory.events %}
                         <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
 
-                            <!-- 核心字段（始终显示） -->
-                            {% if ev.get('experiencer') %}<p><span class="field-label">体验者：</span>{{ ev.experiencer }}</p>{% endif %}
+                            <!-- 核心气味要素 -->
+                            {% if ev.get('semantic_notation') %}<p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>{% endif %}
+                            {% if ev.get('experiencer') %}<p><span class="field-label">感知主体：</span>{{ ev.experiencer }}</p>{% endif %}
                             {% if ev.get('odor_source') %}<p><span class="field-label">气味来源：</span>{{ ev.odor_source }}</p>{% endif %}
                             {% if ev.get('odor_descriptors') %}<p><span class="field-label">气味描述词：</span>{{ ev.odor_descriptors | join(', ') }}</p>{% endif %}
-                            {% if ev.get('intensity') is not none %}<p><span class="field-label">感知强度：</span>{{ "%.2f"|format(ev.intensity) }}</p>{% endif %}
+                            {% if ev.get('intensity') is not none %}
+                                <p><span class="field-label">感知强度：</span>{{ "%.1f"|format(ev.intensity) }}（0.0–1.0 量化值）</p>
+                            {% endif %}
 
-                            <!-- 事件级证据与语义（折叠） -->
-                            {% if ev.get('evidence') or ev.get('semantic_notation') %}
-                            <details class="details-block" style="margin-top: 8px;">
+                            <!-- 气味情感与评价 -->
+                            {% if ev.get('odor_valence') %}
+                            <p><span class="field-label">情感倾向：</span>{{ ev.odor_valence | join(', ') }}</p>
+                            {% endif %}
+
+                            <!-- 来源分类与行为响应 -->
+                            {% if ev.get('odor_source_category') or ev.get('olfactory_actions') %}
+                            {% if ev.get('odor_source_category') %}<p><span class="field-label">来源类别：</span>{{ ev.odor_source_category | join(', ') }}</p>{% endif %}
+                            {% if ev.get('olfactory_actions') %}<p><span class="field-label">嗅觉相关动作：</span>{{ ev.olfactory_actions | join(', ') }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 否定观察 -->
+                            {% if ev.get('negated_observations') %}
+                            <p><span class="field-label">否定观察：</span>{{ ev.negated_observations | join(', ') }}</p>
+                            {% endif %}
+
+                            <!-- 事件级证据（仅 evidence，语义已前置） -->
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 10px;">
                                 <summary>📄 查看本事件依据</summary>
                                 <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
-                                    {% if ev.get('evidence') %}
                                     <p><span class="field-label">事件证据：</span>
                                         {% for frag in ev.evidence %}
                                         <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                                         {% endfor %}
                                     </p>
-                                    {% endif %}
-                                    {% if ev.get('semantic_notation') %}
-                                    <p><span class="field-label">事件语义：</span><code>{{ ev.semantic_notation }}</code></p>
-                                    {% endif %}
                                 </div>
                             </details>
                             {% endif %}
@@ -615,20 +740,18 @@
 
                 <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>✋ 展开触觉解析详情（含全局证据、语义标识与事件细节）</summary>
+                    <summary>🔍 展开触觉解析详情（含全局证据、语义标识与事件细节）</summary>
                     <div class="details-content">
 
-                        <!-- 全局字段 -->
+                        <!-- 全局原文证据（带说明） -->
                         {% if data.tactile.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整个触觉判断的原始文本片段）</small><br>
                             {% for frag in data.tactile.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
-                        {% endif %}
-
-                        {% if data.tactile.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.tactile.semantic_notation }}</code></p>
                         {% endif %}
 
                         <!-- 触觉事件列表 -->
@@ -637,27 +760,49 @@
                         {% for ev in data.tactile.events %}
                         <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
 
-                            <!-- 核心字段（始终显示） -->
-                            {% if ev.get('experiencer') %}<p><span class="field-label">体验者：</span>{{ ev.experiencer }}</p>{% endif %}
+                            <!-- 核心接触关系 -->
+                            {% if ev.get('semantic_notation') %}<p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>{% endif %}
+                            {% if ev.get('experiencer') %}<p><span class="field-label">感知主体：</span>{{ ev.experiencer }}</p>{% endif %}
+                            {% if ev.get('contact_initiator') %}<p><span class="field-label">接触发起方：</span>{{ ev.contact_initiator }}</p>{% endif %}
                             {% if ev.get('contact_target') %}<p><span class="field-label">接触对象：</span>{{ ev.contact_target }}</p>{% endif %}
+                            {% if ev.get('body_part') %}<p><span class="field-label">身体部位：</span>{{ ev.body_part }}</p>{% endif %}
                             {% if ev.get('tactile_descriptors') %}<p><span class="field-label">触觉描述词：</span>{{ ev.tactile_descriptors | join(', ') }}</p>{% endif %}
-                            {% if ev.get('intensity') is not none %}<p><span class="field-label">感知强度：</span>{{ "%.2f"|format(ev.intensity) }}</p>{% endif %}
+                            {% if ev.get('intensity') is not none %}
+                                <p><span class="field-label">感知强度：</span>{{ "%.1f"|format(ev.intensity) }}（0.0–1.0 量化值）</p>
+                            {% endif %}
 
-                            <!-- 事件级证据与语义（折叠） -->
-                            {% if ev.get('evidence') or ev.get('semantic_notation') %}
-                            <details class="details-block" style="margin-top: 8px;">
+                            <!-- 物理属性维度（触觉核心特色！） -->
+                            {% if ev.get('texture') or ev.get('temperature') or ev.get('pressure') or ev.get('moisture') or ev.get('vibration') or ev.get('motion') or ev.get('pain') or ev.get('contact') %}
+                            {% if ev.get('texture') %}<p><span class="field-label">质地特征：</span>{{ ev.texture | join(', ') }}</p>{% endif %}
+                            {% if ev.get('temperature') %}<p><span class="field-label">温度特征：</span>{{ ev.temperature | join(', ') }}</p>{% endif %}
+                            {% if ev.get('pressure') %}<p><span class="field-label">压力特征：</span>{{ ev.pressure | join(', ') }}</p>{% endif %}
+                            {% if ev.get('moisture') %}<p><span class="field-label">湿度特征：</span>{{ ev.moisture | join(', ') }}</p>{% endif %}
+                            {% if ev.get('vibration') %}<p><span class="field-label">震动特征：</span>{{ ev.vibration | join(', ') }}</p>{% endif %}
+                            {% if ev.get('motion') %}<p><span class="field-label">动态触觉：</span>{{ ev.motion | join(', ') }}</p>{% endif %}
+                            {% if ev.get('pain') %}<p><span class="field-label">疼痛描述：</span>{{ ev.pain | join(', ') }}</p>{% endif %}
+                            {% if ev.get('contact') %}<p><span class="field-label">接触方式/存在：</span>{{ ev.contact | join(', ') }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 情感与意图 -->
+                            {% if ev.get('tactile_intent_or_valence') %}
+                            <p><span class="field-label">情感或意图：</span>{{ ev.tactile_intent_or_valence | join(', ') }}</p>
+                            {% endif %}
+
+                            <!-- 否定观察 -->
+                            {% if ev.get('negated_observations') %}
+                            <p><span class="field-label">否定观察：</span>{{ ev.negated_observations | join(', ') }}</p>
+                            {% endif %}
+
+                            <!-- 事件级证据（仅 evidence） -->
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 10px;">
                                 <summary>📄 查看本事件依据</summary>
                                 <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
-                                    {% if ev.get('evidence') %}
                                     <p><span class="field-label">事件证据：</span>
                                         {% for frag in ev.evidence %}
                                         <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                                         {% endfor %}
                                     </p>
-                                    {% endif %}
-                                    {% if ev.get('semantic_notation') %}
-                                    <p><span class="field-label">事件语义：</span><code>{{ ev.semantic_notation }}</code></p>
-                                    {% endif %}
                                 </div>
                             </details>
                             {% endif %}
@@ -677,66 +822,93 @@
         <div class="section">
             <h3>8. 味觉感知</h3>
             <div class="subsection">
-                <!-- 主摘要（始终显示） -->
-                {% if data.gustatory.get('summary') %}
-                <p><span class="field-label">味觉摘要：</span>{{ data.gustatory.summary }}</p>
-                {% endif %}
+            <!-- 主摘要（始终显示） -->
+            {% if data.gustatory.get('summary') %}
+            <p><span class="field-label">味觉摘要：</span>{{ data.gustatory.summary }}</p>
+            {% endif %}
 
-                <!-- 折叠详情 -->
-                <details class="details-block">
-                    <summary>👅 展开味觉解析详情（含全局证据、语义标识与事件细节）</summary>
-                    <div class="details-content">
+            <!-- 折叠详情 -->
+            <details class="details-block">
+                <summary>🔍 展开味觉解析详情（含全局证据、语义标识与事件细节）</summary>
+                <div class="details-content">
 
-                        <!-- 全局字段 -->
-                        {% if data.gustatory.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
-                            {% for frag in data.gustatory.evidence %}
-                            <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
-                            {% endfor %}
-                        </p>
-                        {% endif %}
-
-                        {% if data.gustatory.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.gustatory.semantic_notation }}</code></p>
-                        {% endif %}
-
-                        <!-- 味觉事件列表 -->
-                        {% if data.gustatory.get('events') and data.gustatory.events %}
-                        <h4 style="margin-top: 16px; margin-bottom: 10px;">味觉事件详情（共 {{ data.gustatory.events | length }} 项）</h4>
-                        {% for ev in data.gustatory.events %}
-                        <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
-
-                            <!-- 核心字段（始终显示） -->
-                            {% if ev.get('experiencer') %}<p><span class="field-label">体验者：</span>{{ ev.experiencer }}</p>{% endif %}
-                            {% if ev.get('taste_source') %}<p><span class="field-label">味道来源：</span>{{ ev.taste_source }}</p>{% endif %}
-                            {% if ev.get('taste_descriptors') %}<p><span class="field-label">味觉描述词：</span>{{ ev.taste_descriptors | join(', ') }}</p>{% endif %}
-                            {% if ev.get('intensity') is not none %}<p><span class="field-label">感知强度：</span>{{ "%.2f"|format(ev.intensity) }}</p>{% endif %}
-
-                            <!-- 事件级证据与语义（折叠） -->
-                            {% if ev.get('evidence') or ev.get('semantic_notation') %}
-                            <details class="details-block" style="margin-top: 8px;">
-                                <summary>📄 查看本事件依据</summary>
-                                <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
-                                    {% if ev.get('evidence') %}
-                                    <p><span class="field-label">事件证据：</span>
-                                        {% for frag in ev.evidence %}
-                                        <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
-                                        {% endfor %}
-                                    </p>
-                                    {% endif %}
-                                    {% if ev.get('semantic_notation') %}
-                                    <p><span class="field-label">事件语义：</span><code>{{ ev.semantic_notation }}</code></p>
-                                    {% endif %}
-                                </div>
-                            </details>
-                            {% endif %}
-
-                        </div>
+                    <!-- 全局原文证据（带说明） -->
+                    {% if data.gustatory.get('evidence') %}
+                    <p>
+                        <span class="field-label">全局原文证据：</span>
+                        <small style="color: #666; font-style: italic;">（支撑整个味觉判断的原始文本片段）</small><br>
+                        {% for frag in data.gustatory.evidence %}
+                        <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                         {% endfor %}
+                    </p>
+                    {% endif %}
+
+                    <!-- 味觉事件列表 -->
+                    {% if data.gustatory.get('events') and data.gustatory.events %}
+                    <h4 style="margin-top: 16px; margin-bottom: 10px;">味觉事件详情（共 {{ data.gustatory.events | length }} 项）</h4>
+                    {% for ev in data.gustatory.events %}
+                    <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
+
+                        <!-- 核心摄入关系 -->
+                        {% if ev.get('semantic_notation') %}<p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>{% endif %}
+                        {% if ev.get('experiencer') %}<p><span class="field-label">感知主体：</span>{{ ev.experiencer }}</p>{% endif %}
+                        {% if ev.get('contact_initiator') %}<p><span class="field-label">摄入发起方：</span>{{ ev.contact_initiator }}</p>{% endif %}
+                        {% if ev.get('taste_source') %}<p><span class="field-label">味道来源：</span>{{ ev.taste_source }}</p>{% endif %}
+                        {% if ev.get('body_part') %}<p><span class="field-label">感受部位：</span>{{ ev.body_part }}</p>{% endif %}
+                        {% if ev.get('taste_descriptors') %}<p><span class="field-label">味觉描述词：</span>{{ ev.taste_descriptors | join(', ') }}</p>{% endif %}
+                        {% if ev.get('intensity') is not none %}
+                            <p><span class="field-label">感知强度：</span>{{ "%.1f"|format(ev.intensity) }}（0.0–1.0 量化值）</p>
+                        {% endif %}
+
+                        <!-- 基础味型（经典五味） -->
+                        {% if ev.get('sweet') or ev.get('salty') or ev.get('sour') or ev.get('bitter') or ev.get('umami') %}
+                        {% if ev.get('sweet') %}<p><span class="field-label">甜味：</span>{{ ev.sweet | join(', ') }}</p>{% endif %}
+                        {% if ev.get('salty') %}<p><span class="field-label">咸味：</span>{{ ev.salty | join(', ') }}</p>{% endif %}
+                        {% if ev.get('sour') %}<p><span class="field-label">酸味：</span>{{ ev.sour | join(', ') }}</p>{% endif %}
+                        {% if ev.get('bitter') %}<p><span class="field-label">苦味：</span>{{ ev.bitter | join(', ') }}</p>{% endif %}
+                        {% if ev.get('umami') %}<p><span class="field-label">鲜味：</span>{{ ev.umami | join(', ') }}</p>{% endif %}
+                        {% endif %}
+
+                        <!-- 扩展风味与三叉神经刺激 -->
+                        {% if ev.get('spicy') or ev.get('astringent') or ev.get('fatty') or ev.get('metallic') or ev.get('chemical') or ev.get('thermal') %}
+                        {% if ev.get('spicy') %}<p><span class="field-label">辣/刺激感：</span>{{ ev.spicy | join(', ') }}</p>{% endif %}
+                        {% if ev.get('astringent') %}<p><span class="field-label">涩味：</span>{{ ev.astringent | join(', ') }}</p>{% endif %}
+                        {% if ev.get('fatty') %}<p><span class="field-label">油脂感：</span>{{ ev.fatty | join(', ') }}</p>{% endif %}
+                        {% if ev.get('metallic') %}<p><span class="field-label">金属味：</span>{{ ev.metallic | join(', ') }}</p>{% endif %}
+                        {% if ev.get('chemical') %}<p><span class="field-label">化学异味：</span>{{ ev.chemical | join(', ') }}</p>{% endif %}
+                        {% if ev.get('thermal') %}<p><span class="field-label">清凉/灼热感：</span>{{ ev.thermal | join(', ') }}</p>{% endif %}
+                        {% endif %}
+
+                        <!-- 情感与意图 -->
+                        {% if ev.get('intent_or_valence') %}
+                        <p><span class="field-label">情感或意图：</span>{{ ev.intent_or_valence | join(', ') }}</p>
+                        {% endif %}
+
+                        <!-- 否定观察 -->
+                        {% if ev.get('negated_observations') %}
+                        <p><span class="field-label">否定观察：</span>{{ ev.negated_observations | join(', ') }}</p>
+                        {% endif %}
+
+                        <!-- 事件级证据（仅 evidence） -->
+                        {% if ev.get('evidence') %}
+                        <details class="details-block" style="margin-top: 10px;">
+                            <summary>📄 查看本事件依据</summary>
+                            <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
+                                <p><span class="field-label">事件证据：</span>
+                                    {% for frag in ev.evidence %}
+                                    <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
+                                    {% endfor %}
+                                </p>
+                            </div>
+                        </details>
                         {% endif %}
 
                     </div>
-                </details>
+                    {% endfor %}
+                    {% endif %}
+
+                </div>
+            </details>
             </div>
         </div>
         {% endif %}
@@ -753,20 +925,18 @@
 
                 <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>💓 展开内感受解析详情（含全局证据、语义标识与事件细节）</summary>
+                    <summary>🔍 展开内感受解析详情（含全局证据、语义标识与事件细节）</summary>
                     <div class="details-content">
 
-                        <!-- 全局字段 -->
+                        <!-- 全局原文证据 -->
                         {% if data.interoceptive.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整体内感受判断的原始文本片段）</small><br>
                             {% for frag in data.interoceptive.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
-                        {% endif %}
-
-                        {% if data.interoceptive.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.interoceptive.semantic_notation }}</code></p>
                         {% endif %}
 
                         <!-- 内感受事件列表 -->
@@ -775,26 +945,59 @@
                         {% for ev in data.interoceptive.events %}
                         <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
 
-                            <!-- 核心字段（始终显示） -->
-                            {% if ev.get('experiencer') %}<p><span class="field-label">体验者：</span>{{ ev.experiencer }}</p>{% endif %}
-                            {% if ev.get('body_sensation') %}<p><span class="field-label">身体感觉：</span>{{ ev.body_sensation | join(', ') }}</p>{% endif %}
-                            {% if ev.get('intensity') is not none %}<p><span class="field-label">感知强度：</span>{{ "%.2f"|format(ev.intensity) }}</p>{% endif %}
+                            <!-- 核心元信息 -->
+                            {% if ev.get('semantic_notation') %}<p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>{% endif %}
+                            {% if ev.get('experiencer') %}<p><span class="field-label">感知主体：</span>{{ ev.experiencer }}</p>{% endif %}
+                            {% if ev.get('body_part') %}<p><span class="field-label">感受部位：</span>{{ ev.body_part }}</p>{% endif %}
+                            {% if ev.get('intensity') is not none %}
+                                <p><span class="field-label">感知强度：</span>{{ "%.1f"|format(ev.intensity) }}（0.0–1.0 量化值）</p>
+                            {% endif %}
 
-                            <!-- 事件级证据与语义（折叠） -->
-                            {% if ev.get('evidence') or ev.get('semantic_notation') %}
-                            <details class="details-block" style="margin-top: 8px;">
+                            <!-- 通用身体感觉（非分类描述） -->
+                            {% if ev.get('body_sensation') %}
+                            <p><span class="field-label">非特异性描述：</span>{{ ev.body_sensation | join(', ') }}</p>
+                            {% endif %}
+
+                            <!-- 生理系统维度（分组呈现） -->
+                            {% set has_systemic = ev.get('cardiac') or ev.get('respiratory') or ev.get('gastrointestinal') or ev.get('thermal') or ev.get('muscular') or ev.get('visceral_pressure') %}
+                            {% if has_systemic %}
+                            {% if ev.get('cardiac') %}<p><span class="field-label">心悸/心跳感：</span>{{ ev.cardiac | join(', ') }}</p>{% endif %}
+                            {% if ev.get('respiratory') %}<p><span class="field-label">呼吸感：</span>{{ ev.respiratory | join(', ') }}</p>{% endif %}
+                            {% if ev.get('gastrointestinal') %}<p><span class="field-label">胃肠感：</span>{{ ev.gastrointestinal | join(', ') }}</p>{% endif %}
+                            {% if ev.get('thermal') %}<p><span class="field-label">体温感：</span>{{ ev.thermal | join(', ') }}</p>{% endif %}
+                            {% if ev.get('muscular') %}<p><span class="field-label">肌肉感：</span>{{ ev.muscular | join(', ') }}</p>{% endif %}
+                            {% if ev.get('visceral_pressure') %}<p><span class="field-label">压迫感：</span>{{ ev.visceral_pressure | join(', ') }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 神经与稳态相关感受 -->
+                            {% set has_neuro_homeostatic = ev.get('dizziness') or ev.get('nausea') or ev.get('fatigue') or ev.get('thirst_hunger') %}
+                            {% if has_neuro_homeostatic %}
+                            {% if ev.get('dizziness') %}<p><span class="field-label">眩晕/失衡感：</span>{{ ev.dizziness | join(', ') }}</p>{% endif %}
+                            {% if ev.get('nausea') %}<p><span class="field-label">恶心/反胃感：</span>{{ ev.nausea | join(', ') }}</p>{% endif %}
+                            {% if ev.get('fatigue') %}<p><span class="field-label">疲惫/虚脱感：</span>{{ ev.fatigue | join(', ') }}</p>{% endif %}
+                            {% if ev.get('thirst_hunger') %}<p><span class="field-label">饥渴感：</span>{{ ev.thirst_hunger | join(', ') }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 情感/意图倾向 -->
+                            {% if ev.get('intent_or_valence') %}
+                            <p><span class="field-label">情感或意图：</span>{{ ev.intent_or_valence | join(', ') }}</p>
+                            {% endif %}
+
+                            <!-- 否定观察 -->
+                            {% if ev.get('negated_observations') %}
+                            <p><span class="field-label">否定内容：</span>{{ ev.negated_observations | join(', ') }}</p>
+                            {% endif %}
+
+                            <!-- 事件级证据（仅 evidence） -->
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 10px;">
                                 <summary>📄 查看本事件依据</summary>
                                 <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
-                                    {% if ev.get('evidence') %}
                                     <p><span class="field-label">事件证据：</span>
                                         {% for frag in ev.evidence %}
                                         <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                                         {% endfor %}
                                     </p>
-                                    {% endif %}
-                                    {% if ev.get('semantic_notation') %}
-                                    <p><span class="field-label">事件语义：</span><code>{{ ev.semantic_notation }}</code></p>
-                                    {% endif %}
                                 </div>
                             </details>
                             {% endif %}
@@ -821,20 +1024,18 @@
 
                 <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>🧠 展开认知解析详情（含全局证据、语义标识与事件细节）</summary>
+                    <summary>🔍 展开认知解析详情（含全局证据、语义标识与事件细节）</summary>
                     <div class="details-content">
 
-                        <!-- 全局字段 -->
+                        <!-- 全局原文证据 -->
                         {% if data.cognitive.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整体认知判断的原始文本片段）</small><br>
                             {% for frag in data.cognitive.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
-                        {% endif %}
-
-                        {% if data.cognitive.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.cognitive.semantic_notation }}</code></p>
                         {% endif %}
 
                         <!-- 认知事件列表 -->
@@ -843,32 +1044,62 @@
                         {% for ev in data.cognitive.events %}
                         <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
 
-                            <!-- 核心字段（始终显示） -->
-                            {% if ev.get('experiencer') %}
-                            <p><span class="field-label">认知主体：</span>{{ ev.experiencer }}</p>
-                            {% endif %}
-                            {% if ev.get('explicit_thought') %}
-                            <p><span class="field-label">显性思维：</span>{{ ev.explicit_thought | join('; ') }}</p>
-                            {% endif %}
+                            <!-- 核心元信息（前置） -->
+                            {% if ev.get('semantic_notation') %}<p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>{% endif %}
+                            {% if ev.get('experiencer') %}<p><span class="field-label">认知主体：</span>{{ ev.experiencer }}</p>{% endif %}
+                            {% if ev.get('target_entity') %}<p><span class="field-label">思维、想法、念头：</span>{{ ev.target_entity }}</p>{% endif %}
                             {% if ev.get('intensity') is not none %}
-                            <p><span class="field-label">认知强度：</span>{{ "%.2f"|format(ev.intensity) }}</p>
+                                <p><span class="field-label">认知强度：</span>{{ "%.1f"|format(ev.intensity) }}（0.0–1.0，表确信度或负荷）</p>
                             {% endif %}
 
-                            <!-- 事件级证据与语义（折叠） -->
-                            {% if ev.get('evidence') or ev.get('semantic_notation') %}
-                            <details class="details-block" style="margin-top: 8px;">
+                            <!-- 原始显性思维（保留，作为兜底） -->
+                            {% if ev.get('explicit_thought') %}
+                            <p><span class="field-label">未分类思维文本：</span>{{ ev.explicit_thought | join('; ') }}</p>
+                            {% endif %}
+
+                            <!-- 基础认知功能 -->
+                            {% set has_basic = ev.get('belief') or ev.get('memory_recall') or ev.get('intention') %}
+                            {% if has_basic %}
+                            {% if ev.get('belief') %}<p><span class="field-label">信念：</span>{{ ev.belief | join('; ') }}</p>{% endif %}
+                            {% if ev.get('intention') %}<p><span class="field-label">意图：</span>{{ ev.intention | join('; ') }}</p>{% endif %}
+                            {% if ev.get('memory_recall') %}<p><span class="field-label">记忆提取：</span>{{ ev.memory_recall | join('; ') }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 高阶认知功能 -->
+                            {% set has_higher = ev.get('inference') or ev.get('problem_solving') or ev.get('metacognition') %}
+                            {% if has_higher %}
+                            {% if ev.get('inference') %}<p><span class="field-label">推理：</span>{{ ev.inference | join('; ') }}</p>{% endif %}
+                            {% if ev.get('problem_solving') %}<p><span class="field-label">问题解决思路：</span>{{ ev.problem_solving | join('; ') }}</p>{% endif %}
+                            {% if ev.get('metacognition') %}<p><span class="field-label">元认知（对思维的反思）：</span>{{ ev.metacognition | join('; ') }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 情感耦合的认知 -->
+                            {% set has_affective = ev.get('evaluation') or ev.get('doubt_or_uncertainty') %}
+                            {% if has_affective %}
+                            {% if ev.get('evaluation') %}<p><span class="field-label">价值判断：</span>{{ ev.evaluation | join('; ') }}</p>{% endif %}
+                            {% if ev.get('doubt_or_uncertainty') %}<p><span class="field-label">怀疑/不确定：</span>{{ ev.doubt_or_uncertainty | join('; ') }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 否定认知 -->
+                            {% if ev.get('negated_cognitions') %}
+                            <p><span class="field-label">否定内容：</span>{{ ev.negated_cognitions | join('; ') }}</p>
+                            {% endif %}
+
+                            <!-- 认知情感倾向 -->
+                            {% if ev.get('cognitive_valence') %}
+                            <p><span class="field-label">情感色彩：</span>{{ ev.cognitive_valence | join('; ') }}</p>
+                            {% endif %}
+
+                            <!-- 事件级证据（仅 evidence） -->
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 10px;">
                                 <summary>📄 查看本事件依据</summary>
                                 <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
-                                    {% if ev.get('evidence') %}
                                     <p><span class="field-label">事件证据：</span>
                                         {% for frag in ev.evidence %}
                                         <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                                         {% endfor %}
                                     </p>
-                                    {% endif %}
-                                    {% if ev.get('semantic_notation') %}
-                                    <p><span class="field-label">事件语义：</span><code>{{ ev.semantic_notation }}</code></p>
-                                    {% endif %}
                                 </div>
                             </details>
                             {% endif %}
@@ -895,20 +1126,18 @@
 
                 <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>🦴 展开躯体化解析详情（含全局证据、语义标识与事件细节）</summary>
+                    <summary>🔍 展开躯体化解析详情（含全局证据、语义标识与事件细节）</summary>
                     <div class="details-content">
 
-                        <!-- 全局字段 -->
+                        <!-- 全局原文证据 -->
                         {% if data.bodily.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整体躯体化判断的原始文本片段）</small><br>
                             {% for frag in data.bodily.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
-                        {% endif %}
-
-                        {% if data.bodily.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.bodily.semantic_notation }}</code></p>
                         {% endif %}
 
                         <!-- 躯体化事件列表 -->
@@ -917,32 +1146,54 @@
                         {% for ev in data.bodily.events %}
                         <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
 
-                            <!-- 核心字段（始终显示） -->
-                            {% if ev.get('experiencer') %}
-                            <p><span class="field-label">主体：</span>{{ ev.experiencer }}</p>
-                            {% endif %}
-                            {% if ev.get('observable_behavior') %}
-                            <p><span class="field-label">可观测行为：</span>{{ ev.observable_behavior | join(', ') }}</p>
-                            {% endif %}
+                            <!-- 核心元信息（前置） -->
+                            {% if ev.get('semantic_notation') %}<p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>{% endif %}
+                            {% if ev.get('experiencer') %}<p><span class="field-label">行为主体：</span>{{ ev.experiencer }}</p>{% endif %}
+                            {% if ev.get('observer') %}<p><span class="field-label">观察者：</span>{{ ev.observer }}</p>{% endif %}
                             {% if ev.get('intensity') is not none %}
-                            <p><span class="field-label">症状强度：</span>{{ "%.2f"|format(ev.intensity) }}</p>
+                                <p><span class="field-label">表现强度：</span>{{ "%.1f"|format(ev.intensity) }}（0.0–1.0，表显著程度）</p>
                             {% endif %}
 
-                            <!-- 事件级证据与语义（折叠） -->
-                            {% if ev.get('evidence') or ev.get('semantic_notation') %}
-                            <details class="details-block" style="margin-top: 8px;">
+                            <!-- 姿态与运动 -->
+                            {% set has_posture_motion = ev.get('posture') or ev.get('movement_direction') %}
+                            {% if has_posture_motion %}
+                            {% if ev.get('posture') %}<p><span class="field-label">静态姿态：</span>{{ ev.posture }}</p>{% endif %}
+                            {% if ev.get('movement_direction') %}<p><span class="field-label">运动方向/趋势：</span>{{ ev.movement_direction }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 外显行为系统 -->
+                            {% set has_expressive = ev.get('facial_expression') or ev.get('vocal_behavior') or ev.get('motor_behavior') %}
+                            {% if has_expressive %}
+                            {% if ev.get('facial_expression') %}<p><span class="field-label">面部表情：</span>{{ ev.facial_expression | join('; ') }}</p>{% endif %}
+                            {% if ev.get('vocal_behavior') %}<p><span class="field-label">声音表现：</span>{{ ev.vocal_behavior | join('; ') }}</p>{% endif %}
+                            {% if ev.get('motor_behavior') %}<p><span class="field-label">动作行为：</span>{{ ev.motor_behavior | join('; ') }}</p>{% endif %}
+                            {% endif %}
+
+                            <!-- 自主神经系统反应 -->
+                            {% if ev.get('autonomic_signs') %}
+                            <p><span class="field-label">生理唤醒表现：</span>{{ ev.autonomic_signs | join('; ') }}</p>
+                            {% endif %}
+
+                            <!-- 应激防御反应 -->
+                            {% if ev.get('freeze_or_faint') %}
+                            <p><span class="field-label">冻结/晕厥类反应：</span>{{ ev.freeze_or_faint | join('; ') }}</p>
+                            {% endif %}
+
+                            <!-- 原始未分类行为（兜底） -->
+                            {% if ev.get('observable_behavior') %}
+                            <p><span class="field-label">原始可观测行为：</span>{{ ev.observable_behavior | join('; ') }}</p>
+                            {% endif %}
+
+                            <!-- 事件级证据（仅 evidence） -->
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 10px;">
                                 <summary>📄 查看本事件依据</summary>
                                 <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
-                                    {% if ev.get('evidence') %}
                                     <p><span class="field-label">事件证据：</span>
                                         {% for frag in ev.evidence %}
                                         <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                                         {% endfor %}
                                     </p>
-                                    {% endif %}
-                                    {% if ev.get('semantic_notation') %}
-                                    <p><span class="field-label">事件语义：</span><code>{{ ev.semantic_notation }}</code></p>
-                                    {% endif %}
                                 </div>
                             </details>
                             {% endif %}
@@ -969,60 +1220,84 @@
 
                 <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>❤️ 展开情感解析详情（含全局证据、语义标识与事件细节）</summary>
+                    <summary>🔍 展开情感解析详情（含全局证据、语义标识与事件细节）</summary>
                     <div class="details-content">
 
-                        <!-- 全局字段 -->
+                        <!-- 全局原文证据 -->
                         {% if data.emotional.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整体情感判断的原始文本片段）</small><br>
                             {% for frag in data.emotional.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
                         {% endif %}
 
-                        {% if data.emotional.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.emotional.semantic_notation }}</code></p>
-                        {% endif %}
-
                         <!-- 情感事件列表 -->
                         {% if data.emotional.get('events') and data.emotional.events %}
                         <h4 style="margin-top: 16px; margin-bottom: 10px;">情感事件详情（共 {{ data.emotional.events | length }} 项）</h4>
                         {% for ev in data.emotional.events %}
-                        <div class="relation-item" style="padding: 10px; background: #fff8f8; border-radius: 6px; margin-bottom: 12px; border-left: 3px solid #e74c3c;">
+                        <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
 
-                            <!-- 核心字段（始终显示） -->
+                            <!-- 核心元信息（前置） -->
+                            {% if ev.get('semantic_notation') %}
+                            <p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>
+                            {% endif %}
                             {% if ev.get('experiencer') %}
                             <p><span class="field-label">情绪主体：</span>{{ ev.experiencer }}</p>
                             {% endif %}
                             {% if ev.get('emotion_labels') %}
-                            <p><span class="field-label">情绪标签：</span>{{ ev.emotion_labels | join(', ') }}</p>
-                            {% endif %}
-                            {% if ev.get('valence') is not none %}
-                            <p><span class="field-label">效价（-1~1）：</span>{{ "%.2f"|format(ev.valence) }}</p>
-                            {% endif %}
-                            {% if ev.get('arousal') is not none %}
-                            <p><span class="field-label">唤醒度（0~1）：</span>{{ "%.2f"|format(ev.arousal) }}</p>
-                            {% endif %}
-                            {% if ev.get('intensity') is not none %}
-                            <p><span class="field-label">情感强度：</span>{{ "%.2f"|format(ev.intensity) }}</p>
+                            <p><span class="field-label">情绪标签：</span>{{ ev.emotion_labels | join('; ') }}</p>
                             {% endif %}
 
-                            <!-- 事件级证据与语义（折叠） -->
-                            {% if ev.get('evidence') or ev.get('semantic_notation') %}
-                            <details class="details-block" style="margin-top: 8px;">
+                            <!-- 情感表达模式（规范取值） -->
+                            {% if ev.get('expression_mode') %}
+                            <p><span class="field-label">表达模式：</span>
+                                <span style="font-family: monospace; background: #f8f9fa; padding: 2px 6px; border-radius: 3px;">
+                                    {{ ev.expression_mode }}
+                                </span>
+                                <small style="color: #7f8c8d; margin-left: 6px;">
+                                    {% if ev.expression_mode == 'self_report' %}
+                                        （第一人称自述）
+                                    {% elif ev.expression_mode == 'observed_behavior' %}
+                                        （他人观察到的行为）
+                                    {% elif ev.expression_mode == 'narrator_attribution' %}
+                                        （叙述者归因）
+                                    {% elif ev.expression_mode == 'explicit' %}
+                                        （直接陈述）
+                                    {% elif ev.expression_mode == 'implicit' %}
+                                        （间接暗示：行为/躯体/环境线索）
+                                    {% elif ev.expression_mode == 'projected' %}
+                                        （情绪投射至他人）
+                                    {% else %}
+                                        （{{ ev.expression_mode }}）
+                                    {% endif %}
+                                </small>
+                            </p>
+                            {% endif %}
+
+                            <!-- 情感维度系统（垂直排列，统一格式） -->
+                            {% if ev.get('valence') is not none %}
+                            <p><span class="field-label">效价（Valence）：</span>{{ "%.1f"|format(ev.valence) }}（-1=负向，0=中性，+1=正向）</p>
+                            {% endif %}
+                            {% if ev.get('arousal') is not none %}
+                            <p><span class="field-label">唤醒度（Arousal）：</span>{{ "%.1f"|format(ev.arousal) }}（0=平静，1=激动）</p>
+                            {% endif %}
+                            {% if ev.get('intensity') is not none %}
+                            <p><span class="field-label">主观强度：</span>{{ "%.1f"|format(ev.intensity) }}（0.0–1.0，表情绪强烈程度）</p>
+                            {% endif %}
+
+                            <!-- 事件级证据 -->
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 10px;">
                                 <summary>📄 查看本事件依据</summary>
-                                <div style="margin-top: 6px; padding: 6px; background: #fdf6f6; border-radius: 4px; font-size: 0.95em;">
-                                    {% if ev.get('evidence') %}
+                                <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
                                     <p><span class="field-label">事件证据：</span>
                                         {% for frag in ev.evidence %}
                                         <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                                         {% endfor %}
                                     </p>
-                                    {% endif %}
-                                    {% if ev.get('semantic_notation') %}
-                                    <p><span class="field-label">事件语义：</span><code>{{ ev.semantic_notation }}</code></p>
-                                    {% endif %}
                                 </div>
                             </details>
                             {% endif %}
@@ -1049,54 +1324,58 @@
 
                 <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>👥 展开社会关系解析详情（含全局证据、语义标识与事件细节）</summary>
+                    <summary>🔍 展开社会关系解析详情（含全局证据、语义标识与事件细节）</summary>
                     <div class="details-content">
 
-                        <!-- 全局字段 -->
+                        <!-- 全局原文证据 -->
                         {% if data.social_relation.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整体关系判断的原始文本片段）</small><br>
                             {% for frag in data.social_relation.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
                         {% endif %}
 
-                        {% if data.social_relation.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.social_relation.semantic_notation }}</code></p>
-                        {% endif %}
-
                         <!-- 社会关系事件列表 -->
                         {% if data.social_relation.get('events') and data.social_relation.events %}
                         <h4 style="margin-top: 16px; margin-bottom: 10px;">关系事件详情（共 {{ data.social_relation.events | length }} 项）</h4>
                         {% for ev in data.social_relation.events %}
-                        <div class="relation-item" style="padding: 10px; background: #f0f7ff; border-radius: 6px; margin-bottom: 12px; border-left: 3px solid #3498db;">
+                        <div class="relation-item" style="padding: 10px; background: #f9f9f9; border-radius: 6px; margin-bottom: 12px;">
 
-                            <!-- 核心字段（始终显示） -->
-                            {% if ev.get('participants') %}
-                            <p><span class="field-label">参与者：</span>{{ ev.participants | join(', ') }}</p>
+                            <!-- 核心元信息（前置） -->
+                            {% if ev.get('semantic_notation') %}
+                            <p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>
                             {% endif %}
+
+                            <!-- 关系方向性处理 -->
+                            {% if ev.get('source') and ev.get('target') %}
+                            <p><span class="field-label">关系主体 → 对象：</span><strong>{{ ev.source }}</strong> → <strong>{{ ev.target }}</strong></p>
+                            {% elif ev.get('participants') %}
+                            <p><span class="field-label">参与者：</span>{{ ev.participants | join('; ') }}</p>
+                            {% endif %}
+
+                            <!-- 自然语言关系类型 -->
                             {% if ev.get('relation_type') %}
-                            <p><span class="field-label">关系类型：</span>{{ ev.relation_type | join(', ') }}</p>
-                            {% endif %}
-                            {% if ev.get('explicit_relation_statement') %}
-                            <p><span class="field-label">关系陈述：</span>{{ ev.explicit_relation_statement | join('; ') }}</p>
+                            <p><span class="field-label">关系类型：</span>{{ ev.relation_type }}</p>
                             {% endif %}
 
-                            <!-- 事件级证据与语义（折叠） -->
-                            {% if ev.get('evidence') or ev.get('semantic_notation') %}
-                            <details class="details-block" style="margin-top: 8px;">
+                            <!-- 置信度（格式与认知强度一致） -->
+                            {% if ev.get('confidence') is not none %}
+                            <p><span class="field-label">判断置信度：</span>{{ "%.1f"|format(ev.confidence) }}（0.0–1.0，表确信程度）</p>
+                            {% endif %}
+
+                            <!-- 事件级证据（仅 evidence） -->
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 10px;">
                                 <summary>📄 查看本事件依据</summary>
-                                <div style="margin-top: 6px; padding: 6px; background: #eef7ff; border-radius: 4px; font-size: 0.95em;">
-                                    {% if ev.get('evidence') %}
+                                <div style="margin-top: 6px; padding: 6px; background: #f0f8ff; border-radius: 4px; font-size: 0.95em;">
                                     <p><span class="field-label">事件证据：</span>
                                         {% for frag in ev.evidence %}
                                         <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                                         {% endfor %}
                                     </p>
-                                    {% endif %}
-                                    {% if ev.get('semantic_notation') %}
-                                    <p><span class="field-label">事件语义：</span><code>{{ ev.semantic_notation }}</code></p>
-                                    {% endif %}
                                 </div>
                             </details>
                             {% endif %}
@@ -1111,71 +1390,130 @@
         </div>
         {% endif %}
 
-        <!-- 14. 推理层 -->
+        <!-- 14. 合理推演 -->
         {% if data.get('inference') %}
         <div class="section">
-            <h3>14. 推理分析</h3>
+            <h3>14. 合理推演</h3>
             <div class="subsection">
                 <!-- 主摘要（始终显示） -->
                 {% if data.inference.get('summary') %}
-                <p><span class="field-label">推理摘要：</span>{{ data.inference.summary }}</p>
+                <p><span class="field-label">推演摘要：</span>{{ data.inference.summary }}</p>
                 {% endif %}
 
                 <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>🧠 展开推理解析详情（含全局证据、语义标识与事件溯源）</summary>
+                    <summary>🔍 展开推演解析详情（含全局证据、语义标识与事件溯源）</summary>
                     <div class="details-content">
 
-                        <!-- 全局字段 -->
+                        <!-- 全局原文证据 -->
                         {% if data.inference.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            <small style="color: #666; font-style: italic;">（支撑整体推演判断的原始文本片段）</small><br>
                             {% for frag in data.inference.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
                         {% endif %}
 
-                        {% if data.inference.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.inference.semantic_notation }}</code></p>
-                        {% endif %}
-
-                        <!-- 推理事件列表 -->
+                        <!-- 推演事件列表 -->
                         {% if data.inference.get('events') and data.inference.events %}
-                        <h4 style="margin-top: 16px; margin-bottom: 10px;">推理事件详情（共 {{ data.inference.events | length }} 项）</h4>
+                        <h4 style="margin-top: 16px; margin-bottom: 10px;">推演事件详情（共 {{ data.inference.events | length }} 项）</h4>
                         {% for ev in data.inference.events %}
-                        <div class="relation-item" style="padding: 10px; background: #f8f9fa; border-radius: 6px; margin-bottom: 12px; border-left: 3px solid #9b59b6;">
+                        <div class="relation-item" style="padding: 10px; background: #f8f9fa; border-radius: 6px; margin-bottom: 12px; border-left: 4px solid #9b59b6;">
 
-                            <!-- 核心字段（始终显示） -->
-                            {% if ev.get('experiencer') %}
-                            <p><span class="field-label">推理主体：</span>{{ ev.experiencer }}</p>
+                            <!-- 核心元信息（前置） -->
+                            {% if ev.get('semantic_notation') %}
+                            <p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>
                             {% endif %}
-                            {% if ev.get('inference_type') %}
-                            <p><span class="field-label">推理类型：</span>{{ ev.inference_type }}</p>
+
+                            <!-- 推理主体与结论 -->
+                            {% if ev.get('experiencer') %}
+                            <p><span class="field-label">推演主体：</span>{{ ev.experiencer }}</p>
                             {% endif %}
                             {% if ev.get('inferred_proposition') %}
-                            <p><span class="field-label">推理结论：</span>{{ ev.inferred_proposition }}</p>
+                            <p><span class="field-label">推演结论：</span>{{ ev.inferred_proposition }}</p>
                             {% endif %}
-                            {% if ev.get('anchor_points') %}
-                            <p><span class="field-label">依据锚点（语义标识）：</span>
-                                <code>{{ ev.anchor_points | join(', ') }}</code>
+
+                            <!-- 推理类型（规范取值） -->
+                            {% if ev.get('inference_type') %}
+                            <p><span class="field-label">推理类型：</span>
+                                <span style="font-family: monospace; background: #eef2f7; padding: 2px 6px; border-radius: 3px;">
+                                    {{ ev.inference_type }}
+                                </span>
+                                <small style="color: #7f8c8d; margin-left: 6px;">
+                                    {% if ev.inference_type == 'causal' %}（因果推断）
+                                    {% elif ev.inference_type == 'temporal' %}（时序推断）
+                                    {% elif ev.inference_type == 'intentional' %}（意图推断）
+                                    {% elif ev.inference_type == 'belief' %}（信念推断）
+                                    {% elif ev.inference_type == 'contradiction' %}（矛盾检测）
+                                    {% elif ev.inference_type == 'consistency_check' %}（一致性校验）
+                                    {% elif ev.inference_type == 'counterfactual' %}（反事实推断）
+                                    {% elif ev.inference_type == 'abductive' %}（溯因推断）
+                                    {% elif ev.inference_type == 'normative' %}（规范性推断）
+                                    {% elif ev.inference_type == 'social_attribution' %}（社会归因）
+                                    {% elif ev.inference_type == 'state_transition' %}（状态转移推断）
+                                    {% elif ev.inference_type == 'predictive' %}（预测性推断）
+                                    {% elif ev.inference_type == 'analogical' %}（类比推断）
+                                    {% else %}（未知类型：{{ ev.inference_type }}）
+                                    {% endif %}
+                                </small>
                             </p>
                             {% endif %}
 
-                            <!-- 事件级证据与语义（折叠） -->
-                            {% if ev.get('evidence') or ev.get('semantic_notation') %}
-                            <details class="details-block" style="margin-top: 8px;">
-                                <summary>📄 查看本推理依据与语义</summary>
+                            <!-- 锚点：链接底层感知事件 -->
+                            {% if ev.get('anchor_points') %}
+                            <p>
+                                <span class="field-label">感知锚点：</span>
+                                <small style="color: #666;">（引用的底层事件语义标识）</small><br>
+                                <code>{{ ev.anchor_points | join('; ') }}</code>
+                            </p>
+                            {% endif %}
+
+                            <!-- 元属性：极性、模态、范围 -->
+                            <div style="display: flex; flex-wrap: wrap; gap: 12px; margin-top: 8px; font-size: 0.95em; color: #555;">
+                                {% if ev.get('polarity') %}
+                                <div>
+                                    <span class="field-label">命题极性：</span>
+                                    {% if ev.polarity == 'positive' %}
+                                        <span style="color: #27ae60;">积极</span>
+                                    {% elif ev.polarity == 'negative' %}
+                                        <span style="color: #e74c3c;">消极</span>
+                                    {% elif ev.polarity == 'neutral' %}
+                                        <span style="color: #7f8c8d;">中性</span>
+                                    {% endif %}
+                                </div>
+                                {% endif %}
+
+                                {% if ev.get('context_modality') %}
+                                <div><span class="field-label">语境模态：</span>
+                                    <span style="font-family: monospace;">{{ ev.context_modality }}</span>
+                                    <small style="color: #7f8c8d;">
+                                        {% if ev.context_modality == 'epistemic' %}（认知可能）
+                                        {% elif ev.context_modality == 'deontic' %}（义务/许可）
+                                        {% elif ev.context_modality == 'bouletic' %}（愿望/偏好）
+                                        {% elif ev.context_modality == 'alethic' %}（逻辑必然）
+                                        {% else %}（{{ ev.context_modality }}）
+                                        {% endif %}
+                                    </small>
+                                </div>
+                                {% endif %}
+
+                                {% if ev.get('scope') %}
+                                <div><span class="field-label">适用范围：</span>{{ ev.scope }}</div>
+                                {% endif %}
+                            </div>
+
+                            <!-- 事件级证据 -->
+                            {% if ev.get('evidence') %}
+                            <details class="details-block" style="margin-top: 12px;">
+                                <summary>📄 查看本推演原始依据</summary>
                                 <div style="margin-top: 6px; padding: 6px; background: #f5f6fa; border-radius: 4px; font-size: 0.95em;">
-                                    {% if ev.get('evidence') %}
                                     <p><span class="field-label">原始文本证据：</span>
                                         {% for frag in ev.evidence %}
                                         <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                                         {% endfor %}
                                     </p>
-                                    {% endif %}
-                                    {% if ev.get('semantic_notation') %}
-                                    <p><span class="field-label">推理语义标识：</span><code>{{ ev.semantic_notation }}</code></p>
-                                    {% endif %}
                                 </div>
                             </details>
                             {% endif %}
@@ -1190,14 +1528,14 @@
         </div>
         {% endif %}
 
-        <!-- 15. 深度分析 -->
-        {% if data.get('deep_analysis') %}
+        <!-- 15. 显性动机 -->
+        {% if data.get('explicit_motivation') %}
         <div class="section">
-            <h3>15. 深度分析</h3>
+            <h3>15. 显性动机</h3>
             <div class="subsection">
-                <!-- 主摘要（始终显示） -->
-                {% if data.deep_analysis.get('summary') %}
-                <p><span class="field-label">深层动因摘要：</span>{{ data.deep_analysis.summary }}</p>
+                <!-- 主摘要 -->
+                {% if data.explicit_motivation.get('summary') %}
+                <p><span class="field-label">显性动因摘要：</span>{{ data.explicit_motivation.summary }}</p>
                 {% endif %}
 
                 <!-- 折叠详情 -->
@@ -1206,62 +1544,91 @@
                     <div class="details-content">
 
                         <!-- 全局字段 -->
-                        {% if data.deep_analysis.get('evidence') %}
-                        <p><span class="field-label">全局原文证据：</span>
-                            {% for frag in data.deep_analysis.evidence %}
+                        {% if data.explicit_motivation.get('evidence') %}
+                        <p>
+                            <span class="field-label">全局原文证据：</span>
+                            {% for frag in data.explicit_motivation.evidence %}
                             <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                             {% endfor %}
                         </p>
                         {% endif %}
 
-                        {% if data.deep_analysis.get('semantic_notation') %}
-                        <p><span class="field-label">全局语义标识：</span><code>{{ data.deep_analysis.semantic_notation }}</code></p>
-                        {% endif %}
+                        <!-- 动机事件列表 -->
+                        {% if data.explicit_motivation.get('events') and data.explicit_motivation.events %}
+                        <h4 style="margin-top: 16px; margin-bottom: 10px;">显性动机事件（共 {{ data.explicit_motivation.events | length }} 项）</h4>
+                        {% for ev in data.explicit_motivation.events %}
+                        <div class="relation-item" style="padding: 12px; background: #fff9f0; border-radius: 6px; margin-bottom: 14px; border-left: 4px solid #e67e22;">
 
-                        <!-- 深度分析事件列表 -->
-                        {% if data.deep_analysis.get('events') and data.deep_analysis.events %}
-                        <h4 style="margin-top: 16px; margin-bottom: 10px;">深度动因事件（共 {{ data.deep_analysis.events | length }} 项）</h4>
-                        {% for ev in data.deep_analysis.events %}
-                        <div class="relation-item" style="padding: 12px; background: #fff9f0; border-radius: 6px; margin-bottom: 14px; border-left: 3px solid #e67e22;">
-
-                            <!-- 基础信息 -->
+                            <!-- 核心元信息（前置） -->
+                            {% if ev.get('motivation_category') %}
+                            <p><span class="field-label">动机类型：</span>
+                                <span style="font-family: monospace; background: #fdf6e3; padding: 2px 6px; border-radius: 3px;">
+                                    {{ ev.motivation_category }}
+                                </span>
+                            </p>
+                            {% endif %}
+                            {% if ev.get('semantic_notation') %}
+                            <p><span class="field-label">语义标识：</span><code>{{ ev.semantic_notation }}</code></p>
+                            {% endif %}
                             {% if ev.get('experiencer') %}
-                            <p><span class="field-label">分析对象：</span>{{ ev.experiencer }}</p>
+                            <p><span class="field-label">陈述主体：</span>{{ ev.experiencer }}</p>
                             {% endif %}
 
-                            <!-- 核心动机组（关怀/恐惧/保护） -->
+                            <!-- 原文证据（始终显示） -->
+                            {% if ev.get('evidence') %}
+                            <p><span class="field-label">原始陈述：</span>
+                                {% for frag in ev.evidence %}
+                                <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
+                                {% endfor %}
+                            </p>
+                            {% endif %}
+
+                            <!-- 情感动机（折叠） -->
                             {% if ev.get('core_driver') or ev.get('care_expression') or ev.get('separation_anxiety') or ev.get('protective_intent') %}
-                            <div style="margin-top: 8px; padding: 8px; background: #fdf6e3; border-radius: 4px;">
-                                <strong>❤️ 核心情感与动机：</strong>
-                                {% if ev.get('core_driver') %}<p><span class="field-label">根本驱动力：</span>{{ ev.core_driver | join('; ') }}</p>{% endif %}
-                                {% if ev.get('care_expression') %}<p><span class="field-label">关怀表达：</span>{{ ev.care_expression | join('; ') }}</p>{% endif %}
-                                {% if ev.get('separation_anxiety') %}<p><span class="field-label">分离焦虑：</span>{{ ev.separation_anxiety | join('; ') }}</p>{% endif %}
-                                {% if ev.get('protective_intent') %}<p><span class="field-label">保护意图：</span>{{ ev.protective_intent | join('; ') }}</p>{% endif %}
-                            </div>
+                            <details class="details-block" style="margin-top: 10px;">
+                                <summary>❤️ 情感与关怀驱动</summary>
+                                <div style="margin-top: 6px; padding: 8px; background: #fdf6e3; border-radius: 4px; font-size: 0.95em;">
+                                    {% if ev.get('core_driver') %}<p><span class="field-label">根本驱动力：</span>{{ ev.core_driver | join('; ') }}</p>{% endif %}
+                                    {% if ev.get('care_expression') %}<p><span class="field-label">关怀表达：</span>{{ ev.care_expression | join('; ') }}</p>{% endif %}
+                                    {% if ev.get('separation_anxiety') %}<p><span class="field-label">分离焦虑：</span>{{ ev.separation_anxiety | join('; ') }}</p>{% endif %}
+                                    {% if ev.get('protective_intent') %}<p><span class="field-label">保护意图：</span>{{ ev.protective_intent | join('; ') }}</p>{% endif %}
+                                </div>
+                            </details>
                             {% endif %}
 
-                            <!-- 控制与服从结构 -->
+                            <!-- 社会控制（折叠） -->
                             {% if ev.get('resource_control') or ev.get('survival_imperative') or ev.get('social_enforcement_mechanism') %}
-                            <div style="margin-top: 8px; padding: 8px; background: #f0f9ff; border-radius: 4px;">
-                                <strong>⚖️ 控制、服从与社会压力：</strong>
-                                {% if ev.get('resource_control') %}<p><span class="field-label">资源控制：</span>{{ ev.resource_control | join('; ') }}</p>{% endif %}
-                                {% if ev.get('survival_imperative') %}<p><span class="field-label">生存性服从：</span>{{ ev.survival_imperative | join('; ') }}</p>{% endif %}
-                                {% if ev.get('social_enforcement_mechanism') %}<p><span class="field-label">社会规范压力：</span>{{ ev.social_enforcement_mechanism | join('; ') }}</p>{% endif %}
+                            <details class="details-block" style="margin-top: 10px;">
+                                <summary>⚖️ 社会控制与服从压力</summary>
+                                <div style="margin-top: 6px; padding: 8px; background: #f0f9ff; border-radius: 4px; font-size: 0.95em;">
+                                    {% if ev.get('resource_control') %}<p><span class="field-label">资源控制：</span>{{ ev.resource_control | join('; ') }}</p>{% endif %}
+                                    {% if ev.get('survival_imperative') %}<p><span class="field-label">生存性服从：</span>{{ ev.survival_imperative | join('; ') }}</p>{% endif %}
+                                    {% if ev.get('social_enforcement_mechanism') %}<p><span class="field-label">社会规范压力：</span>{{ ev.social_enforcement_mechanism | join('; ') }}</p>{% endif %}
+                                </div>
+                            </details>
+                            {% endif %}
+
+                            <!-- 内化压迫（显眼警示） -->
+                            {% if ev.get('internalized_oppression') %}
+                            <div style="margin-top: 10px; padding: 8px; background: #ffecec; border-left: 3px solid #e74c3c; border-radius: 4px;">
+                                <strong>🩹 内化压迫（用户自我贬低/正当化伤害）：</strong>
+                                <p>{{ ev.internalized_oppression | join('; ') }}</p>
                             </div>
                             {% endif %}
 
-                            <!-- 权力不对称（折叠） -->
+                            <!-- 权力结构（仅当显性描述） -->
                             {% if ev.get('power_asymmetry') %}
                             <details class="details-block" style="margin-top: 10px;">
-                                <summary>🔐 权力不对称结构（控制/依赖/威胁）</summary>
-                                <div style="margin-top: 6px; padding: 8px; background: #f8f0ff; border-radius: 4px;">
-                                    {% if ev.power_asymmetry.get('control_axis') %}<p><span class="field-label">控制维度：</span>{{ ev.power_asymmetry.control_axis | join(', ') }}</p>{% endif %}
-                                    {% if ev.power_asymmetry.get('dependency_ratio') is not none %}
-                                    <p><span class="field-label">依赖程度：</span>{{ "%.2f"|format(ev.power_asymmetry.dependency_ratio) }}</p>
+                                <summary>🔐 用户自述的权力不对称</summary>
+                                <div style="margin-top: 6px; padding: 8px; background: #f8f0ff; border-radius: 4px; font-size: 0.95em;">
+                                    {% if ev.power_asymmetry.get('control_axis') %}
+                                    <p><span class="field-label">控制方式：</span>{{ ev.power_asymmetry.control_axis | join(', ') }}</p>
                                     {% endif %}
-                                    {% if ev.power_asymmetry.get('threat_vector') %}<p><span class="field-label">威胁方式：</span>{{ ev.power_asymmetry.threat_vector | join(', ') }}</p>{% endif %}
+                                    {% if ev.power_asymmetry.get('threat_vector') %}
+                                    <p><span class="field-label">威胁手段：</span>{{ ev.power_asymmetry.threat_vector | join(', ') }}</p>
+                                    {% endif %}
                                     {% if ev.power_asymmetry.get('evidence') %}
-                                    <p><span class="field-label">权力证据：</span>
+                                    <p><span class="field-label">原文证据：</span>
                                         {% for frag in ev.power_asymmetry.evidence %}
                                         <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
                                         {% endfor %}
@@ -1274,16 +1641,16 @@
                             <!-- 话术策略（折叠） -->
                             {% if ev.get('narrative_distortion') %}
                             <details class="details-block" style="margin-top: 10px;">
-                                <summary>🎭 话术策略（自我合理化/责任转嫁/道德豁免）</summary>
-                                <div style="margin-top: 6px; padding: 8px; background: #f0fff0; border-radius: 4px;">
+                                <summary>🎭 用户自述的话术策略</summary>
+                                <div style="margin-top: 6px; padding: 8px; background: #f0fff0; border-radius: 4px; font-size: 0.95em;">
                                     {% if ev.narrative_distortion.get('self_justification') %}
-                                    <p><span class="field-label">自我合理化：</span>{{ ev.narrative_distortion.self_justification }}</p>
+                                    <p><span class="field-label">自我合理化：</span>“{{ ev.narrative_distortion.self_justification }}”</p>
                                     {% endif %}
                                     {% if ev.narrative_distortion.get('blame_shift') %}
-                                    <p><span class="field-label">责任转嫁：</span>{{ ev.narrative_distortion.blame_shift }}</p>
+                                    <p><span class="field-label">责任转嫁：</span>“{{ ev.narrative_distortion.blame_shift }}”</p>
                                     {% endif %}
                                     {% if ev.narrative_distortion.get('moral_licensing') %}
-                                    <p><span class="field-label">道德豁免：</span>{{ ev.narrative_distortion.moral_licensing }}</p>
+                                    <p><span class="field-label">道德豁免：</span>“{{ ev.narrative_distortion.moral_licensing }}”</p>
                                     {% endif %}
                                     {% if ev.narrative_distortion.get('evidence') %}
                                     <p><span class="field-label">话术证据：</span>
@@ -1311,28 +1678,26 @@
         <div class="section">
             <h3>16. 合理建议</h3>
             <div class="subsection">
-                <!-- 主摘要（始终显示） -->
+                <!-- 主摘要 -->
                 {% if data.rational_advice.get('summary') %}
                 <p><span class="field-label">建议概述：</span>{{ data.rational_advice.summary }}</p>
                 {% endif %}
+                {% if data.rational_advice.get('semantic_notation') %}
+                <p><span class="field-label">语义标识：</span><code>{{ data.rational_advice.semantic_notation }}</code></p>
+                {% endif %}
 
-                <!-- 折叠详情 -->
                 <details class="details-block">
-                    <summary>🛠️ 展开完整建议方案（含依据、代价评估与文化适配）</summary>
+                    <summary>🔍 展开完整建议方案（含依据、代价评估与文化适配）</summary>
                     <div class="details-content">
 
-                        <!-- 全局字段 -->
+                        <!-- 依据：语义标识 -->
                         {% if data.rational_advice.get('evidence') %}
-                        <p><span class="field-label">建议依据（来自分析层语义标识）：</span>
+                        <p><span class="field-label">建议依据（动机语义标识）：</span>
                             <code>{{ data.rational_advice.evidence | join(', ') }}</code>
                         </p>
                         {% endif %}
 
-                        {% if data.rational_advice.get('semantic_notation') %}
-                        <p><span class="field-label">建议语义标识：</span><code>{{ data.rational_advice.semantic_notation }}</code></p>
-                        {% endif %}
-
-                        <!-- 安全优先干预（高亮） -->
+                        <!-- 安全优先干预 -->
                         {% if data.rational_advice.get('safety_first_intervention') %}
                         <h4 style="color: #c0392b; margin-top: 16px;">⚠️ 安全优先干预（立即执行）</h4>
                         <ul class="advice-list" style="background: #fff5f5; padding: 10px; border-left: 3px solid #e74c3c;">
@@ -1355,11 +1720,38 @@
                         <!-- 分阶段策略 -->
                         {% if data.rational_advice.get('incremental_strategy') %}
                         <h4 style="margin-top: 16px;">📈 分阶段策略（低风险渐进）</h4>
-                        <ul class="advice-list">
-                            {% for item in data.rational_advice.incremental_strategy %}
-                            <li>{{ item }}</li>
+                        <div class="advice-list" style="margin-bottom: 16px;">
+                            {% for step in data.rational_advice.incremental_strategy %}
+                            <div style="border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin-bottom: 12px; background: #fafafa;">
+                                <p><strong>🔹 行动：</strong>{{ step.action }}</p>
+                                {% if step.timing_or_condition %}
+                                <p><strong>🕒 时机/条件：</strong>{{ step.timing_or_condition }}</p>
+                                {% endif %}
+                                {% if step.required_resource %}
+                                <p><strong>📦 所需资源：</strong>{{ step.required_resource }}</p>
+                                {% endif %}
+                                {% if step.potential_risk %}
+                                <p><strong>⚠️ 潜在风险：</strong>{{ step.potential_risk }}</p>
+                                {% endif %}
+                                {% if step.contingency_response %}
+                                <p><strong>🛡️ 应对措施：</strong>{{ step.contingency_response }}</p>
+                                {% endif %}
+                            </div>
                             {% endfor %}
-                        </ul>
+                        </div>
+                        {% endif %}
+
+                        <!-- 回退计划（结构化） -->
+                        {% if data.rational_advice.get('fallback_plan') %}
+                        <h4 style="margin-top: 16px; color: #8e44ad;">🛡️ 回退计划（高风险触发时的最小安全措施）</h4>
+                        <div class="advice-list" style="background: #f9f0ff; padding: 10px; border-left: 3px solid #9b59b6;">
+                            {% for fp in data.rational_advice.fallback_plan %}
+                            <div style="margin-bottom: 10px; padding: 8px; background: white; border-radius: 4px;">
+                                <p><strong>🚨 触发条件：</strong>{{ fp.trigger_condition }}</p>
+                                <p><strong>🔄 回退行动：</strong>{{ fp.fallback_action }}</p>
+                            </div>
+                            {% endfor %}
+                        </div>
                         {% endif %}
 
                         <!-- 长期脱离路径 -->
@@ -1372,21 +1764,21 @@
                         </ul>
                         {% endif %}
 
-                        <!-- 文化适应建议 -->
-                        {% if data.rational_advice.get('cultural_adaptation_needed') %}
-                        <h4 style="margin-top: 16px;">🌍 文化适应建议</h4>
+                        <!-- 现有支持再诠释 -->
+                        {% if data.rational_advice.get('available_social_support_reinterpretation') %}
+                        <h4 style="margin-top: 16px;">🤝 现有支持的重新激活</h4>
                         <ul class="advice-list">
-                            {% for item in data.rational_advice.cultural_adaptation_needed %}
+                            {% for item in data.rational_advice.available_social_support_reinterpretation %}
                             <li>{{ item }}</li>
                             {% endfor %}
                         </ul>
                         {% endif %}
 
-                        <!-- 利益相关方代价评估（折叠） -->
+                        <!-- 利益相关方代价评估 -->
                         {% if data.rational_advice.get('stakeholder_tradeoffs') %}
                         <details class="details-block" style="margin-top: 16px;">
-                            <summary>⚖️ 利益相关方代价评估（含依据）</summary>
-                            <div style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 6px;">
+                            <summary>⚖️ 利益相关方代价评估</summary>
+                            <div style="margin-top: 8px; padding: 10px; background: #f8f9fa; border-radius: 6px; font-size: 0.95em;">
                                 {% if data.rational_advice.stakeholder_tradeoffs.get('victim_cost') %}
                                 <p><span class="field-label">低位者风险：</span>{{ data.rational_advice.stakeholder_tradeoffs.victim_cost | join('; ') }}</p>
                                 {% endif %}
@@ -1397,9 +1789,9 @@
                                 <p><span class="field-label">系统稳定性影响：</span>{{ data.rational_advice.stakeholder_tradeoffs.system_stability | join('; ') }}</p>
                                 {% endif %}
                                 {% if data.rational_advice.stakeholder_tradeoffs.get('evidence') %}
-                                <p><span class="field-label">代价评估依据：</span>
+                                <p><span class="field-label">评估依据（语义标识）：</span>
                                     {% for frag in data.rational_advice.stakeholder_tradeoffs.evidence %}
-                                    <code>"{{ frag }}"</code>{% if not loop.last %}；{% endif %}
+                                    <code>{{ frag }}</code>{% if not loop.last %}, {% endif %}
                                     {% endfor %}
                                 </p>
                                 {% endif %}
@@ -1415,7 +1807,7 @@
 
         {% if data.analysis and data.analysis.suggestion %}
             <section class="suggestion-section">
-                <h3>17. 报告解读</h3>
+                <h3>17. 用户输入内容解读</h3>
                 {% if data.analysis.suggestion.success %}
                     <div class="suggestion-content">{{ data.analysis.suggestion.content }}</div>
                 {% else %}

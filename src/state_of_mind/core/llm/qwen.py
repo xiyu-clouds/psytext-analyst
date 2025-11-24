@@ -74,7 +74,7 @@ class AsyncQwenLLMBackend(LLMBackend):
                 "parameters": params
             }
 
-            logger.info("调用 DashScope 异步 API", extra={
+            logger.info("[Qwen - 原始数据处理] 调用 LLM 异步 API", extra={
                 "model": model,
                 "template_name": template_name,
                 "step_name": step_name,
@@ -82,7 +82,7 @@ class AsyncQwenLLMBackend(LLMBackend):
             })
 
             response = await self.client.post(self.api_url, json=payload)
-            logger.info(f"通义千问 原始响应：{response.json()}")
+            logger.info(f"[Qwen - 原始数据处理]  原始响应：{response.json()}")
 
             # === HTTP 非 200：API 业务错误 ===
             if response.status_code != 200:
@@ -110,7 +110,7 @@ class AsyncQwenLLMBackend(LLMBackend):
                     )
 
                 api_error = f"[{code}] {error_msg}"
-                logger.warning("DashScope API 返回错误", extra={
+                logger.warning("[Qwen - 原始数据处理] API 返回错误", extra={
                     "status_code": response.status_code,
                     "error": api_error,
                     "template_name": template_name,
@@ -138,7 +138,7 @@ class AsyncQwenLLMBackend(LLMBackend):
         except Exception as e:
             # === 系统级异常：网络、超时、配置错误等 ===
             system_error = str(e)
-            logger.exception("async_call 系统级异常", extra={
+            logger.exception("[Qwen - 原始数据处理] async_call 系统级异常", extra={
                 "model": model,
                 "template_name": template_name,
                 "step_name": step_name,
@@ -185,8 +185,92 @@ class AsyncQwenLLMBackend(LLMBackend):
 
     @retry_decorator(max_retries=3, enable_exp_backoff=True)
     async def generate_text(self, prompt: str, model: str, params: dict) -> str:
+        # 安全日志用的关键参数（Qwen parameters 字段）
+        log_params = {
+            "temperature": params.get("temperature"),
+            "max_tokens": params.get("max_tokens"),
+            "top_p": params.get("top_p"),
+            "seed": params.get("seed"),
+        }
+
+        try:
+            messages = [{"role": "user", "content": prompt}]
+            payload = {
+                "model": model,
+                "input": {"messages": messages},
+                "parameters": params
+            }
+
+            logger.info(
+                "📝 [Qwen - 生成建议] 调用大模型 API",
+                extra={
+                    "module_name": self.CHINESE_NAME,
+                    "model": model,
+                    "params": log_params,
+                    "prompt_length": len(prompt),
+                    "prompt_preview": prompt[:100].replace("\n", "\\n")
+                }
+            )
+
+            response = await self.client.post(self.api_url, json=payload)
+
+            if response.status_code != 200:
+                error_detail = response.text[:300] if response.text else ""
+                logger.error(
+                    "❌ [Qwen - 生成建议] API 调用失败",
+                    extra={
+                        "module_name": self.CHINESE_NAME,
+                        "status_code": response.status_code,
+                        "error_snippet": error_detail.replace("\n", "\\n"),
+                        "model": model
+                    }
+                )
+                return f"生成失败: HTTP {response.status_code} - {error_detail[:100]}"
+
+            result = response.json()
+            content = self._extract_content_from_response(result)
+
+            if not content:
+                logger.warning(
+                    "⚠️ [Qwen - 生成建议] 返回空内容",
+                    extra={"module_name": self.CHINESE_NAME, "model": model}
+                )
+                return "生成失败"
+
+            stripped = content.strip()
+            logger.info(
+                "✅ [Qwen - 生成建议] 调用成功",
+                extra={
+                    "module_name": self.CHINESE_NAME,
+                    "model": model,
+                    "output_length": len(stripped),
+                    "output_preview": stripped[:100].replace("\n", "\\n")
+                }
+            )
+            return stripped
+
+        except Exception as e:
+            logger.exception(
+                "💥 [Qwen - 生成建议] 调用异常",
+                extra={
+                    "module_name": self.CHINESE_NAME,
+                    "model": model,
+                    "error": str(e)
+                }
+            )
+            return f"生成失败: {str(e)}"
+
+    @retry_decorator(max_retries=3, enable_exp_backoff=True)
+    async def bottom_dissolving_pronouns(self, prompt: str, model: str, params: dict) -> Dict[int, str]:
+        log_params = {
+            "temperature": params.get("temperature"),
+            "max_tokens": params.get("max_tokens"),
+            "top_p": params.get("top_p")
+        }
+
         try:
             messages = [
+                {"role": "system", "content": "只输出严格 JSON 格式，不要添加任何解释、前缀或 Markdown 代码块。"},
                 {"role": "user", "content": prompt}
             ]
             payload = {
@@ -194,15 +278,78 @@ class AsyncQwenLLMBackend(LLMBackend):
                 "input": {"messages": messages},
                 "parameters": params
             }
+
+            logger.info(
+                "🧠 [Qwen - 指代消解] 调用大模型 API",
+                extra={
+                    "module_name": self.CHINESE_NAME,
+                    "model": model,
+                    "params": log_params,
+                    "prompt_length": len(prompt),
+                    "prompt_preview": prompt[:100].replace("\n", "\\n")
+                }
+            )
+
             response = await self.client.post(self.api_url, json=payload)
+
             if response.status_code != 200:
-                return f"生成失败: HTTP {response.status_code}"
+                error_detail = response.text[:300] if response.text else ""
+                logger.error(
+                    "❌ [Qwen - 指代消解] API 调用失败",
+                    extra={
+                        "module_name": self.CHINESE_NAME,
+                        "status_code": response.status_code,
+                        "error_snippet": error_detail.replace("\n", "\\n"),
+                        "model": model
+                    }
+                )
+                return {}  # ❌ 失败返回空 dict，不是字符串！
+
             result = response.json()
             content = self._extract_content_from_response(result)
-            return content.strip() if content else "生成失败"
+
+            if not content:
+                logger.warning("⚠️ [Qwen - 指代消解] 返回空内容", extra={"module_name": self.CHINESE_NAME})
+                return {}
+
+            stripped = content.strip()
+
+            # === 关键：在这里解析 JSON ===
+            start = stripped.find("{")
+            end = stripped.rfind("}") + 1
+            if start == -1 or end <= start:
+                logger.warning(
+                    "⚠️ [Qwen - 指代消解] 无有效 JSON",
+                    extra={"output": stripped[:200], "module_name": self.CHINESE_NAME}
+                )
+                return {}
+
+            try:
+                parsed = json.loads(stripped[start:end])
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    "⚠️ [Qwen - 指代消解] JSON 解析失败",
+                    extra={"error": str(e), "output": stripped[:200], "module_name": self.CHINESE_NAME}
+                )
+                return {}
+
+            # 转换 key 为 int（如果可能）
+            result_dict = {}
+            for k, v in parsed.items():
+                if isinstance(k, str) and isinstance(v, str):
+                    try:
+                        idx = int(k)
+                        result_dict[idx] = v
+                    except ValueError:
+                        continue  # 忽略非法 key
+            return result_dict
+
         except Exception as e:
-            logger.exception("generate_text 失败", exc_info=True)
-            return f"生成失败: {str(e)}"
+            logger.exception(
+                "💥 [Qwen - 指代消解] 调用异常",
+                extra={"module_name": self.CHINESE_NAME, "model": model, "error": str(e)}
+            )
+            return {}  # ❌ 任何异常都返回空 dict
 
     @staticmethod
     def _extract_content_from_response(data: Dict) -> Optional[str]:

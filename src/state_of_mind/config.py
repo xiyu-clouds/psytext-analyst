@@ -12,7 +12,7 @@ from src.state_of_mind.utils.constants import (
     LOG_KEEP_DAYS, LOG_MAX_BYTES, LOG_BACKUP_COUNT,
     PATH_FILE_PYPROJECT,
     PATH_FILE_CHAINA_IP_LIST, PATH_FILE_PROMPTS,
-    PATH_FILE_DEFAULT_TEMPLATE, STORAGE_REDIS, ModelName, PATH_FILE_APP_JSON,
+    PATH_FILE_DEFAULT_TEMPLATE, STORAGE_REDIS, ModelName, PATH_FILE_APP_JSON, DEFAULT_OUTPUT_ROOT,
 )
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
@@ -186,8 +186,8 @@ class Config:
                 return val
             return raw_config.get(key, default)
 
-        self.OUTPUT_ROOT = Path("/home/psytext_analyst/data")
-        # self.OUTPUT_ROOT = Path(DEFAULT_OUTPUT_ROOT) # 本地测试使用
+        self.OUTPUT_ROOT = Path("/home/appuser/psytext_data")
+        # self.OUTPUT_ROOT = Path(DEFAULT_OUTPUT_ROOT)  # 本地测试使用
 
         # === Step 3: 构建动态路径 ===
         self._setup_paths()
