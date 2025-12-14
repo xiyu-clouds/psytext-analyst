@@ -1,0 +1,42 @@
+
+services:
+  psytext:
+    build: .
+    image: psytext_analyst:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - /mnt/d/wsl/psytext/raw:/home/appuser/psytext_data/raw
+      - /mnt/d/wsl/psytext/dye_vat:/home/appuser/psytext_data/dye_vat
+      - /mnt/d/wsl/psytext/reports:/home/appuser/psytext_data/reports
+      - /mnt/d/wsl/psytext/logs:/home/appuser/psytext_data/logs
+      - /mnt/d/wsl/psytext/logs_fallback:/home/appuser/psytext_data/logs_fallback
+    restart: unless-stopped
+
+    environment:
+      # 环境变量的配置优先级最高
+      - XINJING_STORAGE_BACKEND=redis                 # redis 或 local(内存)
+      - XINJING_REDIS_HOST=redis                      # redis是设置使用docker内置的redis， host.docker.internal则是对应宿主机的redis
+#      - XINJING_REDIS_PORT=6379
+#      - XINJING_REDIS_DB=0
+#      - XINJING_REDIS_PASSWORD=                      # 留空或填密码
+#      - XINJING_REDIS_TIMEOUT=5
+#      - XINJING_LLM_CACHE_MAX_SIZE=4096
+#      - XINJING_LLM_CACHE_TTL=3600
+
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:7-alpine
+    # ports:                                        # ← 调试用：允许 Windows 工具连接
+    #   - "6379:6379"                               # ← 如不需要，保持注释
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+#     command: redis-server --requirepass yourpass  # ← 如需密码，取消注释并设置
+
+# ========== 【持久化卷】==========
+# 仅当启用 redis 服务时才需要
+volumes:
+  redis_data:

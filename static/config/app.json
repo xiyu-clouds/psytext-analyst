@@ -1,5 +1,5 @@
 {
-    "XINJING_REPORT_TITLE": "文本多模态感知分析报告",
+    "XINJING_REPORT_TITLE": "全息感知基底分析报告",
     "XINJING_STORAGE_BACKEND": "redis",
     "XINJING_LLM_CACHE_MAX_SIZE": 4096,
     "XINJING_LLM_CACHE_TTL": 3600,
@@ -14,15 +14,25 @@
     "XINJING_LOG_KEEP_DAYS": 7,
     "XINJING_LOG_MAX_BYTES": 10485760,
     "XINJING_LOG_BACKUP_COUNT": 10,
+    "XINJING_SUGGESTION_TYPE": "ironic_deconstructor",
     "XINJING_LLM_BACKEND": "deepseek",
     "XINJING_LLM_MODEL": "deepseek-chat",
     "XINJING_LLM_API_URL": "https://api.deepseek.com",
     "XINJING_LLM_API_KEY": "请输入对应大模型的API密钥",
-    "XINJING_SUGGESTION_TYPE": "psychoanalysis",
+    "XINJING_LLM_API_TIMEOUT": 120,
     "XINJING_LLM_RECOMMENDED_PARAMS": {
         "temperature": 0.6,
         "top_p": 0.95,
         "max_output_tokens": 2048,
         "result_format": "json_object"
-    }
+    },
+    "XINJING_WATERMARK_ENABLED": true,
+    "XINJING_WATERMARK_TEXT": "内部审计严禁外传",
+    "XINJING_WATERMARK_COLOR": "rgba(54, 52, 52, 0.9)",
+    "XINJING_WATERMARK_OPACITY": 0.12,
+    "XINJING_WATERMARK_FONT_SIZE": 48,
+    "XINJING_WATERMARK_ANGLE": -30,
+    "XINJING_WATERMARK_SPACING_COLS": 2,
+    "XINJING_WATERMARK_SPACING_ROWS": 3,
+    "XINJING_WATERMARK_PADDING": 30
 }

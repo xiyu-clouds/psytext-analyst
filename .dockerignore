@@ -1,0 +1,44 @@
+# 版本控制（未来会用 Git）
+.git
+.gitignore
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Python 虚拟环境
+venv/
+.venv/
+env/
+
+# 本地数据（绝对不能进镜像！）
+data/
+logs/
+reports/
+
+# 测试目录（生产镜像不需要）
+tests/
+
+# 构建产物
+dist/
+build/
+*.egg-info/
+
+# 本地配置（敏感）
+.env
+.env.local
+config.local.yaml
+配置说明.txt
+范例.txt
+推送代码命令.txt
+
+# 镜像/容器相关文件（避免循环）
+*.tar
+# Dockerfile
+# docker-compose.yml
+
+# 其他文档（可选）
+# README.md
+CHANGELOG.md

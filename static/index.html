@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>心镜文本分析系统 - 表格版</title>
+  <title>全息感知基底</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <style>
   * {
@@ -263,7 +263,7 @@
 <body>
   <div class="container">
     <div class="title-container">
-      <h1>心镜文本分析系统</h1>
+      <h1>Psytext Analyst - Holographic Perceptual Substrate</h1>
     </div>
 
     <textarea aria-label="" id="inputText" placeholder="请输入一段对话或描述文本...">夜晚九点，夏末的微风轻拂。客厅里，月光透过纱帘洒在木地板上...</textarea>
@@ -306,7 +306,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/axios@1.6.8/dist/axios.min.js"></script>
   <script>
-    // === 配置项说明元数据（必须保留，用于 tooltip）===
+    // === 配置项说明元数据 ===
     const CONFIG_METADATA = {
       "XINJING_REPORT_TITLE": "报告标题，用于标识生成的分析报告内容",
       "XINJING_STORAGE_BACKEND": "存储后端类型，当前使用 Redis 作为缓存与状态存储",
@@ -327,20 +327,72 @@
       "XINJING_LLM_MODEL": "具体调用的 LLM 模型名称",
       "XINJING_LLM_API_URL": "LLM 模型 API 的请求入口地址",
       "XINJING_LLM_API_KEY": "访问 LLM API 所需的密钥（注意保密！）",
+      "XINJING_LLM_API_TIMEOUT": "访问 LLM API 接口的超时时间限制",
       "XINJING_SUGGESTION_TYPE": "生成建议的类型，'psychoanalysis'、'consistency_suggestion'、'literary_critic'、'ironic_deconstructor'、'critical_theorist'、'existential_philosopher'、'cultural_anthropologist'",
-      "XINJING_LLM_RECOMMENDED_PARAMS": "推荐的 LLM 调用参数配置（JSON 对象）"
+      "XINJING_LLM_RECOMMENDED_PARAMS": "推荐的 LLM 调用参数配置（JSON 对象）",
+      "XINJING_WATERMARK_ENABLED": "是否启用页面水印功能（true 启用，false 禁用）",
+      "XINJING_WATERMARK_TEXT": "水印显示的文字内容（如“内部审计严禁外传”）",
+      "XINJING_WATERMARK_COLOR": "水印文字颜色，支持 CSS 颜色格式（如 rgba(54, 52, 52, 0.9)）",
+      "XINJING_WATERMARK_OPACITY": "水印整体透明度，取值范围 0.0 ~ 1.0（值越小越透明）",
+      "XINJING_WATERMARK_FONT_SIZE": "水印文字字号，单位为像素（px）",
+      "XINJING_WATERMARK_ANGLE": "水印旋转角度，单位为度（°），负值表示逆时针旋转（如 -30 表示左上至右下斜向）",
+      "XINJING_WATERMARK_SPACING_COLS": "水印网格的列数，控制水平方向密度（数值越大越稀疏）",
+      "XINJING_WATERMARK_SPACING_ROWS": "水印网格的行数，控制垂直方向密度（数值越大越稀疏）",
+      "XINJING_WATERMARK_PADDING": "每个水印单元格的内边距，单位为像素（px），影响文字间距"
     };
+
+    // === 配置分组顺序（清晰分离，便于维护）===
+    const CONFIG_DISPLAY_ORDER = [
+      // 报告
+      "XINJING_REPORT_TITLE",
+
+      // LLM 核心
+      "XINJING_LLM_BACKEND",
+      "XINJING_LLM_MODEL",
+      "XINJING_LLM_API_URL",
+      "XINJING_LLM_API_KEY",
+      "XINJING_LLM_API_TIMEOUT",
+      "XINJING_LLM_RECOMMENDED_PARAMS",
+
+      // 建议类型
+      "XINJING_SUGGESTION_TYPE",
+
+      // 存储 & Redis
+      "XINJING_STORAGE_BACKEND",
+      "XINJING_LLM_CACHE_MAX_SIZE",
+      "XINJING_LLM_CACHE_TTL",
+      "XINJING_REDIS_HOST",
+      "XINJING_REDIS_PORT",
+      "XINJING_REDIS_DB",
+      "XINJING_REDIS_PASSWORD",
+      "XINJING_REDIS_TIMEOUT",
+
+      // 并发
+      "XINJING_MAX_PARALLEL_CONCURRENCY",
+      "XINJING_CURRENT_PARALLEL_CONCURRENCY",
+      "XINJING_MEDIUM_PARALLEL_CONCURRENCY",
+
+      // 日志
+      "XINJING_LOG_KEEP_DAYS",
+      "XINJING_LOG_MAX_BYTES",
+      "XINJING_LOG_BACKUP_COUNT",
+
+      // 水印
+      "XINJING_WATERMARK_ENABLED", // ← 注意：这里拼错了！
+      "XINJING_WATERMARK_TEXT",
+      "XINJING_WATERMARK_COLOR",
+      "XINJING_WATERMARK_OPACITY",
+      "XINJING_WATERMARK_FONT_SIZE",
+      "XINJING_WATERMARK_ANGLE",
+      "XINJING_WATERMARK_SPACING_COLS",
+      "XINJING_WATERMARK_SPACING_ROWS",
+      "XINJING_WATERMARK_PADDING",
+    ];
 
     let currentConfig = {};
 
-    function toggleConfig() {
-      const content = document.getElementById('configContent');
-      const arrow = document.getElementById('configArrow');
-      const isExpanded = content.style.display === 'block';
-      content.style.display = isExpanded ? 'none' : 'block';
-      arrow.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(180deg)';
-    }
 
+    // --- UI 工具 ---
     function showError(msg) {
       const el = document.getElementById('globalError');
       el.textContent = `❌ ${msg}`;
@@ -352,9 +404,20 @@
       document.getElementById('globalError').style.display = 'none';
     }
 
+    function showMessage(text, isError = false) {
+      const el = document.getElementById('configMessage');
+      el.textContent = text;
+      el.style.backgroundColor = isError ? '#f8d7da' : '#d4edda';
+      el.style.color = isError ? '#721c24' : '#155724';
+      el.style.display = 'block';
+      setTimeout(() => el.style.display = 'none', 3000);
+    }
+
+
+    // --- 报告渲染 ---
     function renderReport(data) {
       const el = document.getElementById('result');
-      let html = `<div class="report-title">${data.title || '文本多模态感知分析报告'}</div>`;
+      let html = `<div class="report-title">${data.title || '全息感知基底分析报告'}</div>`;
 
       const sections = [
         { key: 'emotion', label: '😊 情绪感知' },
@@ -379,6 +442,138 @@
       hideError();
     }
 
+
+    // --- 配置解析 ---
+    function parseConfigValue(str, key) {
+      if (str === 'null') return null;
+      if (str === 'true') return true;
+      if (str === 'false') return false;
+      if (/^-?\d+$/.test(str)) return parseInt(str, 10);
+      if (/^-?\d*\.\d+$/.test(str)) return parseFloat(str);
+
+      // 特殊处理 JSON 对象
+      if (key === 'XINJING_LLM_RECOMMENDED_PARAMS') {
+        try {
+          const parsed = JSON.parse(str);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            return parsed;
+          }
+        } catch (e) {
+          throw new Error(`"${key}" 必须是有效的 JSON 对象`);
+        }
+      }
+
+      return str;
+    }
+
+
+    // --- 配置渲染 ---
+    function createInputForValue(key, value) {
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        const textarea = document.createElement('textarea');
+        textarea.value = JSON.stringify(value, null, 2);
+        textarea.className = 'config-value-textarea';
+        if (key === 'XINJING_LLM_RECOMMENDED_PARAMS') {
+          textarea.id = 'cfg-XINJING_LLM_RECOMMENDED_PARAMS';
+        }
+        return textarea;
+      } else {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.value = value === null ? 'null' : String(value);
+        input.className = 'config-value-input';
+        return input;
+      }
+    }
+
+    function renderConfigRow(key, value) {
+      const desc = CONFIG_METADATA[key] || '无说明';
+      const tr = document.createElement('tr');
+
+      const keyCell = document.createElement('td');
+      const keySpan = document.createElement('span');
+      keySpan.className = 'config-key';
+      keySpan.title = desc;
+      keySpan.textContent = key;
+      keyCell.appendChild(keySpan);
+
+      const valueCell = document.createElement('td');
+      const input = createInputForValue(key, value);
+      input.dataset.key = key;
+      input.spellcheck = false;
+      valueCell.appendChild(input);
+
+      tr.appendChild(keyCell);
+      tr.appendChild(valueCell);
+      return tr;
+    }
+
+    function renderConfigTable(configObj) {
+      const tbody = document.getElementById('configTableBody');
+      const fragment = document.createDocumentFragment();
+
+      const configKeys = new Set(Object.keys(configObj));
+      const rendered = new Set();
+
+      // 按预设顺序渲染
+      for (const key of CONFIG_DISPLAY_ORDER) {
+        if (configKeys.has(key)) {
+          fragment.appendChild(renderConfigRow(key, configObj[key]));
+          rendered.add(key);
+        }
+      }
+
+      // 渲染剩余项（兜底）
+      for (const key of configKeys) {
+        if (!rendered.has(key)) {
+          fragment.appendChild(renderConfigRow(key, configObj[key]));
+        }
+      }
+
+      tbody.innerHTML = '';
+      tbody.appendChild(fragment);
+      currentConfig = { ...configObj };
+    }
+
+
+    // --- API 调用 ---
+    async function loadConfigAsTable() {
+      try {
+        const res = await axios.get('/api/config');
+        renderConfigTable(res.data);
+        showMessage('✅ 配置加载成功');
+      } catch (err) {
+        const msg = err.response?.data?.detail || '配置加载失败';
+        showError(msg);
+      }
+    }
+
+    async function saveConfigFromTable() {
+      const inputs = document.querySelectorAll('#configTableBody [data-key]');
+      const newConfig = {};
+
+      for (const el of inputs) {
+        const key = el.dataset.key;
+        const raw = el.value.trim();
+        try {
+          newConfig[key] = parseConfigValue(raw, key);
+        } catch (e) {
+          showError(e.message || `配置项 "${key}" 格式错误`);
+          return;
+        }
+      }
+
+      try {
+        await axios.post('/api/config', newConfig);
+        showMessage('✅ 配置已保存');
+      } catch (e) {
+        const msg = e.response?.data?.detail || '保存失败';
+        showError(msg);
+      }
+    }
+
+
+    // --- 主流程 ---
     async function analyze() {
       const text = document.getElementById('inputText').value.trim();
       if (!text) {
@@ -394,20 +589,15 @@
 
       const reportWindow = window.open('', '_blank');
       if (!reportWindow) {
-        showError('请允许本页面弹出窗口，或稍后手动查看报告');
+        showError('请允许本页面弹出窗口');
         btn.disabled = false;
         loading.style.display = 'none';
         return;
       }
 
       try {
-        const res = await axios.post('/api/analyze', {
-          text,
-          title: "文本多模态感知分析报告"
-        });
-
+        const res = await axios.post('/api/analyze', { text, title: "全息感知基底分析报告" });
         const { report_url } = res.data;
-
         if (report_url) {
           reportWindow.location.href = report_url;
         } else {
@@ -425,129 +615,16 @@
       }
     }
 
-    // ===== 渲染配置表格（带 tooltip 和特殊样式）=====
-    function renderConfigTable(configObj) {
-      const tbody = document.getElementById('configTableBody');
-      tbody.innerHTML = '';
-
-      const sortedKeys = Object.keys(configObj).sort();
-
-      sortedKeys.forEach(key => {
-        const value = configObj[key];
-        const desc = CONFIG_METADATA[key] || '无说明';
-
-        const tr = document.createElement('tr');
-
-        // 配置键单元格（带 tooltip）
-        const keyCell = document.createElement('td');
-        const keySpan = document.createElement('span');
-        keySpan.className = 'config-key';
-        keySpan.title = desc; // 悬浮提示
-        keySpan.textContent = key;
-        keyCell.appendChild(keySpan);
-
-        // 值单元格
-        const valueCell = document.createElement('td');
-
-        let inputElement;
-        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-          // JSON 对象 → textarea
-          inputElement = document.createElement('textarea');
-          inputElement.value = JSON.stringify(value, null, 2);
-          inputElement.className = 'config-value-textarea';
-          if (key === 'XINJING_LLM_RECOMMENDED_PARAMS') {
-            inputElement.id = 'cfg-XINJING_LLM_RECOMMENDED_PARAMS'; // 用于 CSS 特殊样式
-          }
-        } else {
-          // 其他类型 → input
-          inputElement = document.createElement('input');
-          inputElement.type = 'text';
-          inputElement.value = value === null ? 'null' : String(value);
-          inputElement.className = 'config-value-input';
-        }
-
-        inputElement.dataset.key = key;
-        inputElement.spellcheck = false;
-        valueCell.appendChild(inputElement);
-        tr.appendChild(keyCell);
-        tr.appendChild(valueCell);
-        tbody.appendChild(tr);
-      });
-
-      currentConfig = { ...configObj };
+    function toggleConfig() {
+      const content = document.getElementById('configContent');
+      const arrow = document.getElementById('configArrow');
+      const isExpanded = content.style.display === 'block';
+      content.style.display = isExpanded ? 'none' : 'block';
+      arrow.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(180deg)';
     }
 
-    async function loadConfigAsTable() {
-      hideError();
-      const msgEl = document.getElementById('configMessage');
-      try {
-        const res = await axios.get('/api/config');
-        renderConfigTable(res.data);
-        msgEl.textContent = '✅ 配置加载成功';
-        msgEl.style.display = 'block';
-        msgEl.style.backgroundColor = '#d4edda';
-        msgEl.style.color = '#155724';
-        setTimeout(() => msgEl.style.display = 'none', 3000);
-      } catch (err) {
-        const msg = err.response?.data?.detail || '配置加载失败';
-        showError(msg);
-      }
-    }
 
-    function parseValue(str, key) {
-      if (str === 'null') return null;
-      if (str === 'true') return true;
-      if (str === 'false') return false;
-      if (/^-?\d+$/.test(str)) return parseInt(str, 10);
-      if (/^-?\d*\.\d+$/.test(str)) return parseFloat(str);
-
-      // 尝试解析 JSON（仅对对象类型）
-      if (key === 'XINJING_LLM_RECOMMENDED_PARAMS') {
-        try {
-          const parsed = JSON.parse(str);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            return parsed;
-          }
-        } catch (e) {
-          throw new Error(`"${key}" 必须是有效的 JSON 对象`);
-        }
-      }
-
-      return str;
-    }
-
-    async function saveConfigFromTable() {
-      hideError();
-      const msgEl = document.getElementById('configMessage');
-
-      const inputs = document.querySelectorAll('#configTableBody [data-key]');
-      const newConfig = {};
-
-      for (const el of inputs) {
-        const key = el.dataset.key;
-        const rawValue = el.value.trim();
-        try {
-          newConfig[key] = parseValue(rawValue, key);
-        } catch (e) {
-          showError(e.message || `配置项 "${key}" 格式错误`);
-          return;
-        }
-      }
-
-      try {
-        await axios.post('/api/config', newConfig);
-        msgEl.textContent = '✅ 配置已保存';
-        msgEl.style.display = 'block';
-        msgEl.style.backgroundColor = '#d4edda';
-        msgEl.style.color = '#155724';
-        setTimeout(() => msgEl.style.display = 'none', 3000);
-      } catch (e) {
-        const msg = e.response?.data?.detail || '保存失败';
-        showError(msg);
-      }
-    }
-
-    // 页面加载完成后自动展开配置面板并加载配置
+    // --- 初始化 ---
     window.addEventListener('DOMContentLoaded', () => {
       loadConfigAsTable();
       toggleConfig(); // 默认展开

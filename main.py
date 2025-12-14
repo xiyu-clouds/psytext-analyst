@@ -5,15 +5,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from starlette.responses import HTMLResponse
 from starlette.staticfiles import StaticFiles
-from src.state_of_mind.utils.logger import LoggerManager as logger
+from src.state_of_mind.core.orchestration import MetaCognitiveOrchestrator
 from src.state_of_mind.config import config
-from src.state_of_mind.utils.constants import CATEGORY_RAW, PATH_FILE_APP_JSON, DEFAULT_API_URLS
+from src.state_of_mind.stages.perception.constants import DEFAULT_API_URLS
+from src.state_of_mind.utils.constants import PATH_FILE_APP_JSON, LLMModelConst
 from src.state_of_mind.utils.file_util import FileUtil
-from src.state_of_mind.utils.registry import GlobalSingletonRegistry
-
+from src.state_of_mind.utils.logger import LoggerManager as logger
+logger.inject_config(config)
 CHINESE_NAME = "FastAPI启动中心"
 logger.info("🚀 应用启动中...", module_name=CHINESE_NAME)
-app = FastAPI(title="心镜文本分析系统")
+app = FastAPI(title="心海")
+# 挂载静态文件
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.isdir(static_dir):
+    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    logger.info(f"📁 静态文件已挂载: {static_dir}", module_name=CHINESE_NAME)
+else:
+    logger.warning(f"⚠️ 静态目录不存在: {static_dir}", module_name=CHINESE_NAME)
+
+orchestrator = MetaCognitiveOrchestrator()
 
 # 允许前端跨域（开发时用）
 app.add_middleware(
@@ -29,16 +39,6 @@ logger.info("✅ CORS 中间件已加载", module_name=CHINESE_NAME)
 class AnalysisRequest(BaseModel):
     text: str
     title: str = "文本多模态感知分析报告"
-
-
-# 在模块顶部或配置校验逻辑附近定义支持的模型集合（推荐用 frozenset 提高性能）
-SUPPORTED_LLM_MODELS = frozenset({
-    "qwen-max",
-    "qwen3-max",
-    "qwen-plus",
-    "qwen-flash",
-    "deepseek-chat"
-})
 
 
 # === 配置读取接口 ===
@@ -130,11 +130,12 @@ async def save_config(request: Request):
                     "大模型 API 普通密钥通常仅支持 3~5 并发，过高设置会导致请求被限流或拒绝。"
                 )
             elif concurrency > medium_parallel:
-                errors.append(
-                    f"XINJING_MEDIUM_PARALLEL_CONCURRENCY 设置为 %d，超过推荐值（{medium_parallel}）。"
-                    "普通大模型 API 密钥在并发 >5 时容易因服务端限流导致部分请求失败，"
-                    "建议保持 3~5 以获得稳定响应。" % concurrency
-                )
+                if medium_parallel is not None and concurrency > medium_parallel:
+                    errors.append(
+                        f"XINJING_CURRENT_PARALLEL_CONCURRENCY ({concurrency}) 超过推荐值 ({medium_parallel})。"
+                        "普通大模型 API 密钥在并发 >5 时容易因服务端限流导致部分请求失败，"
+                        "建议保持 3~5 以获得稳定响应。"
+                    )
 
         # 10. LOG_KEEP_DAYS: int > 0
         log_days = new_config.get("LOG_KEEP_DAYS")
@@ -179,10 +180,10 @@ async def save_config(request: Request):
         if llm_model is not None:
             if not isinstance(llm_model, str):
                 errors.append("XINJING_LLM_MODEL 必须是字符串")
-            elif llm_model not in SUPPORTED_LLM_MODELS:
+            elif llm_model not in LLMModelConst.all():
                 errors.append(
                     f"XINJING_LLM_MODEL '{llm_model}' 不受支持。"
-                    f"当前支持的模型：{', '.join(sorted(SUPPORTED_LLM_MODELS))}"
+                    f"当前支持的模型：{', '.join(sorted(LLMModelConst.all()))}"
                 )
 
         # 16. XINJING_LLM_API_URL: str, 简单 URL 校验
@@ -220,7 +221,7 @@ async def save_config(request: Request):
         logger.info("💾 配置已写入文件", module_name=CHINESE_NAME)
 
         # --- 重载配置 ---
-        config.reload()
+        await config.reload()
 
         return {"status": "success", "message": "配置已保存并重载"}
 
@@ -256,32 +257,12 @@ async def analyze_text(request: AnalysisRequest):
     logger.info(f"🧠 收到分析请求，标题: {request.title[:30]}...", module_name=CHINESE_NAME)
     logger.info(f"📝 原始文本长度: {len(request.text)} 字符", module_name=CHINESE_NAME)
     try:
-        engine = GlobalSingletonRegistry.get_extractor_instance(
-            config.LLM_BACKEND,
-            config.LLM_MODEL,
-            config.LLM_RECOMMENDED_PARAMS
-        )
-        logger.info("⚙️ LLM 引擎实例已获取", module_name=CHINESE_NAME)
-
-        result = await engine.async_extract(
-            template_name=CATEGORY_RAW,
-            user_input=request.text,
-            suggestion_type=config.SUGGESTION_TYPE,
-            title=config.REPORT_TITLE or request.title
-        )
+        result = await orchestrator.run(stage_name="perception", user_input=request.text)
         logger.info("✅ 文本分析完成", module_name=CHINESE_NAME)
         return result
     except Exception as e:
         logger.exception("💥 文本分析过程中发生错误", module_name=CHINESE_NAME)  # 记录完整堆栈
         raise HTTPException(status_code=500, detail=f"分析失败: {str(e)}")
 
-
-# 挂载静态文件
-static_dir = os.path.join(os.path.dirname(__file__), "static")
-if os.path.isdir(static_dir):
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
-    logger.info(f"📁 静态文件已挂载: {static_dir}", module_name=CHINESE_NAME)
-else:
-    logger.warning(f"⚠️ 静态目录不存在: {static_dir}", module_name=CHINESE_NAME)
-
 logger.info("🎉 FastAPI 应用初始化完成！", module_name=CHINESE_NAME)
+logger.info("📜 本工具基于 MIT 许可证发布，商业/个人使用前请查阅 LICENSE 与 EULA 文件。", module_name=CHINESE_NAME)

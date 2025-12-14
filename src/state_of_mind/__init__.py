@@ -1,7 +1,7 @@
-from src.state_of_mind.core.llm.deepseek import AsyncDeepSeekBackend
-from src.state_of_mind.core.llm.qwen import AsyncQwenLLMBackend
+from src.state_of_mind.llm.deepseek import AsyncDeepSeekBackend
+from src.state_of_mind.llm.qwen import AsyncQwenLLMBackend
 from src.state_of_mind.utils.registry import GlobalSingletonRegistry
-from src.state_of_mind.utils.constants import ModelName
+from src.state_of_mind.utils.constants import LLMBackendConst
 
-GlobalSingletonRegistry.register_backend(ModelName.QWEN, AsyncQwenLLMBackend)
-GlobalSingletonRegistry.register_backend(ModelName.DEEPSEEK, AsyncDeepSeekBackend)
+GlobalSingletonRegistry.register_backend(LLMBackendConst.QWEN, AsyncQwenLLMBackend)
+GlobalSingletonRegistry.register_backend(LLMBackendConst.DEEPSEEK, AsyncDeepSeekBackend)

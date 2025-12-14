@@ -1,19 +1,15 @@
+"""负责动态渲染"""
 import json
 from typing import Any, Dict, List, Tuple, Optional, Set
-import ulid
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-from src.state_of_mind.config import config
-from src.state_of_mind.utils.constants import PARALLEL, SERIAL, PREPROCESSING, CATEGORY_RAW, SuggestionType, \
-    get_effective_policy, render_iron_law_from_policy, COREFERENCE_RESOLUTION_BATCH
+from src.state_of_mind.prompt_templates.prompt_templates import LLM_PROMPTS_SCHEMA
+from .constants import PARALLEL, SERIAL, PREPROCESSING, get_effective_policy, \
+    render_iron_law_from_policy, COREFERENCE_RESOLUTION_BATCH, CATEGORY_SUGGESTION
 # from src.state_of_mind.utils.ip_timezone import IPBasedTimezoneResolver
 from src.state_of_mind.utils.logger import LoggerManager as logger
 # from src.state_of_mind.utils.network import get_public_ip
-from static.prompts.prompt import LLM_PROMPTS_SCHEMA
 
 
-class Prompter:
+class PromptBuilder:
     """
     Prompt 构造器
     """
@@ -24,17 +20,11 @@ class Prompter:
         构建 Prompt 并返回完整上下文数据
         """
         logger.info("🔄 开始构建 build_raw Prompt", module_name=self.CHINESE_NAME)
-
-        # 1. 验证输入
         if "user_input" not in template_vars:
             error_msg = "缺失必需字段: user_input"
             logger.error(error_msg, module_name=self.CHINESE_NAME)
             raise ValueError(error_msg)
 
-        user_input = template_vars["user_input"]
-        llm_model = template_vars["llm_model"]
-
-        # 2. 获取模板定义
         raw_schema = LLM_PROMPTS_SCHEMA.get(template_name)
         if not raw_schema:
             error_msg = f"模板未定义: {template_name}"
@@ -43,44 +33,33 @@ class Prompter:
 
         schema_version = raw_schema.get("version")
         pipeline = raw_schema.get("pipeline")
+        preprocessing_steps, parallel_steps, serial_steps = PromptBuilder._split_pipeline(pipeline)
 
-        # 3. 三路分离 pipeline
-        preprocessing_steps, parallel_steps, serial_steps = Prompter._split_pipeline(pipeline)
-
-        # 4. 构造三类 prompts
-        preprocessing_prompts = Prompter._build_step_prompts(
+        preprocessing_prompts = PromptBuilder._build_step_prompts(
             steps=preprocessing_steps,
             step_type=PREPROCESSING
         )
 
-        parallel_prompts = Prompter._build_step_prompts(
+        parallel_prompts = PromptBuilder._build_step_prompts(
             steps=parallel_steps,
             step_type=PARALLEL
         )
 
-        serial_prompts = Prompter._build_step_prompts(
+        serial_prompts = PromptBuilder._build_step_prompts(
             steps=serial_steps,
             step_type=SERIAL
         )
 
-        # 5. 生成基础元数据
-        basic_data = Prompter.create_raw_basic_data(user_input, llm_model, schema_version)
-
-        # 6. 记录完成日志
         logger.info(
             f"✅ Prompt 构建完成, preprocessing_count = {len(preprocessing_prompts)} | "
-            f"parallel_count = {len(parallel_prompts)} | serial_count = {len(serial_prompts)} | "
-            f"record_id = {basic_data['id']}",
-            module_name=Prompter.CHINESE_NAME
+            f"parallel_count = {len(parallel_prompts)} | serial_count = {len(serial_prompts)} | ",
+            module_name=PromptBuilder.CHINESE_NAME
         )
-
-        # ✅ 返回完整结构，便于上层组装
         return {
             "template_name": template_name,
-            "preprocessing_prompts": preprocessing_prompts,  # 新增
+            "preprocessing_prompts": preprocessing_prompts,
             "parallel_prompts": parallel_prompts,
-            "serial_prompts": serial_prompts,
-            "basic_data": basic_data
+            "serial_prompts": serial_prompts
         }
 
     def build_suggestion(self, template_name: str, user_input: str, suggestion_type: str) -> str:
@@ -92,17 +71,7 @@ class Prompter:
             logger.error(error_msg, module_name=self.CHINESE_NAME)
             raise ValueError(error_msg)
 
-        # ✅ 使用 SuggestionType 定义的合法类型做校验
-        valid_types = {
-            SuggestionType.PSYCHOANALYSIS,
-            SuggestionType.CONSISTENCY_SUGGESTION,
-            SuggestionType.LITERARY_CRITIC,
-            SuggestionType.IRONIC_DECONSTRUCTOR,
-            SuggestionType.CRITICAL_THEORIST,
-            SuggestionType.EXISTENTIAL_PHILOSOPHER,
-            SuggestionType.CULTURAL_ANTHROPOLOGIST,
-        }
-
+        valid_types = LLM_PROMPTS_SCHEMA[CATEGORY_SUGGESTION].keys()
         if suggestion_type not in valid_types:
             error_msg = f"不支持的建议类型: '{suggestion_type}'。可用类型: {sorted(valid_types)}"
             logger.error(error_msg, module_name=self.CHINESE_NAME)
@@ -128,15 +97,16 @@ class Prompter:
         logger.info("✅ build_suggestion Prompt 构建成功", module_name=self.CHINESE_NAME)
         return final_prompt
 
-    def _build_coref_prompt(
-            self,
+    @staticmethod
+    def build_coref_prompt(
             user_input: str,
             legitimate_participants: Set[str],
             index_to_pronoun: Dict[int, str]
     ) -> str:
         """
         构造指代消解 prompt。
-
+        :param user_input:
+        :param legitimate_participants:
         :param index_to_pronoun: {0: "他", 2: "她", ...} —— 原始事件中的索引到代词映射
         """
         participant_list_str = "\n".join(f"- {p}" for p in sorted(legitimate_participants))
@@ -184,7 +154,7 @@ class Prompter:
 
         logger.info(
             f"📊 pipeline 三路分离完成, preprocessing_count = {len(preprocessing)} | parallel_count = {len(parallel)} | "
-            f"serial_count = {len(serial)} | total_steps = {len(pipeline)}", module_name=Prompter.CHINESE_NAME
+            f"serial_count = {len(serial)} | total_steps = {len(pipeline)}", module_name=PromptBuilder.CHINESE_NAME
         )
         return preprocessing, parallel, serial
 
@@ -195,13 +165,12 @@ class Prompter:
     ) -> List[Tuple[str, str, str]]:
         """
         构建指定类型（并行/串行）的 prompt 列表，返回 (step_name, driven_by, full_prompt) 元组列表。
-
         每个 prompt 严格按以下顺序组织：
-          1. role
-          2. sole_mission
-          3. ### 当前任务的核心铁律（必须绝对遵守）### （来自 input_requirements.data_and_anchor_constraints）
-          4. ### 输出格式与结构强制要求 ### （来自 input_requirements.output_structure_constraints）
-          5. ### 【必须遵守的铁律】 （来自 render_iron_law_from_policy）
+          1. role（由调用方定义【唯一信源】与【当前指令】边界）
+          2. sole_mission（强化锚定要求）
+          3. ### 【绝对铁律】（仅含抽象策略，不涉及具体输入块标识）
+          4. ### 当前任务的核心铁律（字段边界、实体规则等）
+          5. ### 输出格式与结构强制要求
           6. fields schema（JSON 转义后）
         """
         prompts_with_fields = []
@@ -221,18 +190,21 @@ class Prompter:
                 missing_fields.append(f"步骤{idx}.{field}")
                 continue
 
-            # 渲染通用策略铁律（如字面锚定、结构一致等）
+            # 渲染通用策略铁律
             effective_policy = get_effective_policy(step_name)
             dynamic_iron_law = render_iron_law_from_policy(effective_policy)
 
-            # 转义 fields schema，防止大模型误解析为指令
             fields_json = json.dumps(fields, ensure_ascii=False, indent=2)
             fields_escaped = fields_json.replace('{', '{{').replace('}', '}}')
 
             # === 构建三层铁律（按优先级从高到低）===
             iron_law_sections = []
 
-            # 1️⃣ 任务专属数据与锚定约束（最高优先级）
+            # 1️⃣ 通用策略铁律
+            if dynamic_iron_law.strip():
+                iron_law_sections.append(dynamic_iron_law.strip())
+
+            # 2️⃣ 任务专属数据与锚定约束
             data_constraints = input_requirements.get("data_and_anchor_constraints")
             if data_constraints:
                 iron_law_sections.append(
@@ -240,7 +212,7 @@ class Prompter:
                     "\n".join(data_constraints)
                 )
 
-            # 2️⃣ 输出结构与格式强制要求（直接影响生成行为）
+            # 3️⃣ 输出结构与格式强制要求
             output_constraints = input_requirements.get("output_structure_constraints")
             if output_constraints:
                 iron_law_sections.append(
@@ -248,110 +220,38 @@ class Prompter:
                     "\n".join(output_constraints)
                 )
 
-            # 3️⃣ 通用策略铁律（方法论层，最低优先级）
-            if dynamic_iron_law.strip():
-                iron_law_sections.append(dynamic_iron_law.strip())
-
             combined_iron_law = "\n\n".join(iron_law_sections).strip()
 
             # === 拼接完整 prompt ===
             full_prompt_parts = [
-                "### SYSTEM INSTRUCTIONS BEGIN ###\n",
+                "### SYSTEM_INSTRUCTIONS BEGIN ###\n",
                 role.strip(),
                 sole_mission.strip()
             ]
             if combined_iron_law:
                 full_prompt_parts.append(combined_iron_law)
+
             full_prompt_parts.append(fields_escaped.strip())
-            full_prompt_parts.append("### SYSTEM INSTRUCTIONS END ###")
-
+            full_prompt_parts.append("### SYSTEM_INSTRUCTIONS END ###")
             full_prompt = "\n".join(full_prompt_parts)
-
             prompts_with_fields.append((step_name, driven_by, full_prompt))
-
-            # 📝 日志记录：便于后期审计与调试
             logger.info(
                 f"📌 步骤 {step_name} 使用约束配置: {constraint_profile}",
-                module_name=Prompter.CHINESE_NAME
+                module_name=PromptBuilder.CHINESE_NAME
             )
 
         # ❌ 字段缺失校验
         if missing_fields:
             error_msg = f"{step_type} 步骤中缺失字段: {', '.join(missing_fields)}"
-            logger.error(error_msg, module_name=Prompter.CHINESE_NAME)
+            logger.error(error_msg, module_name=PromptBuilder.CHINESE_NAME)
             raise ValueError(error_msg)
 
         # ✅ 成功日志
         logger.info(
             f"🔧 已生成 {step_type} prompts 数量: {len(prompts_with_fields)}",
-            module_name=Prompter.CHINESE_NAME
+            module_name=PromptBuilder.CHINESE_NAME
         )
         return prompts_with_fields
-
-    @staticmethod
-    def create_raw_basic_data(user_input: str, llm_model: str, schema_version: str = "1.0.0") -> Dict[str, Any]:
-        """
-        构造原始事件的固定基础元数据
-        可用于日志追踪、审计、溯源等
-        """
-        record_id = f"raw_{ulid.new().str}"
-
-        # public_ip = get_public_ip()
-        # tz_name = IPBasedTimezoneResolver.get_timezone_from_ip(public_ip) if public_ip else "UTC"
-
-        # if not public_ip:
-        #     logger.warning("⚠️ 无法获取公网IP，使用 UTC 时区", module_name=Prompter.CHINESE_NAME)
-
-        tz = ZoneInfo("UTC")
-        timestamp = datetime.now(tz).isoformat()
-
-        formatter_time = ""
-        try:
-            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=ZoneInfo("UTC"))
-            weekday = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"][dt.weekday()]
-            base_time = dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]  # 毫秒部分
-            formatter_time = f"{base_time} {weekday}"
-        except Exception as e:
-            logger.warning(
-                f"🕒 无法解析 timestamp 为 formatter_time: {e}",
-                module_name=Prompter.CHINESE_NAME,
-                extra={"timestamp": timestamp}
-            )
-
-        data = {
-            "id": record_id,
-            "type": CATEGORY_RAW,
-            "schema_version": schema_version,
-            "timestamp": timestamp,
-            "formatter_time": formatter_time,
-            "source": {
-                "modality": "text/narrative",
-                "content": user_input,
-                "input_mode": "user_input",
-                # "local_ip": public_ip,
-                "timezone": "UTC"
-            },
-            "meta": {
-                "library_version": config.VERSION,
-                "created_by_ai": True,
-                "llm_model": llm_model,
-                "crystal_ids": [],
-                "ontology_ids": [],
-                "narrative_enriched": False,
-                "privacy_scope": {
-                    "allowed_modules": [],
-                    "sync_to_cloud": False,
-                    "notify_on_trigger": False,
-                    "exportable": False
-                }
-
-            }
-        }
-
-        logger.info(f"📦 已生成基础元数据, id={record_id} | timezone=UTC", module_name=Prompter.CHINESE_NAME)
-        return data
 
     @staticmethod
     def generate_description(context: dict, field_config: List[Tuple[str, bool, Any, str]], prefix="") -> str:

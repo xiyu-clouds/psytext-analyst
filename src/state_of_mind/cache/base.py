@@ -13,25 +13,37 @@ class BaseCache(ABC):
         try:
             normalized_vars = {}
             for k, v in template_vars.items():
-                if v is None:
-                    v = "None"
-                elif isinstance(v, bool):
-                    v = str(v).lower()
-                elif isinstance(v, (int, float)):
-                    if isinstance(v, float):
-                        v = round(v, 10)
-                elif isinstance(v, (list, dict)):
-                    v = json.dumps(v, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
-                elif not isinstance(v, str):
-                    v = str(v)
-                normalized_vars[k] = v
+                if k == "user_input" and isinstance(v, str):
+                    # 对 user_input 单独做安全摘要，避免泄露和过长
+                    if v == "":
+                        digest = "empty"
+                    else:
+                        # 使用 blake2b，digest_size=16 → 32字符十六进制字符串
+                        digest = hashlib.blake2b(
+                            v.encode('utf-8', errors='replace'),
+                            digest_size=16
+                        ).hexdigest()
+                    normalized_vars[k] = digest
+                else:
+                    if v is None:
+                        v = "None"
+                    elif isinstance(v, bool):
+                        v = str(v).lower()
+                    elif isinstance(v, (int, float)):
+                        if isinstance(v, float):
+                            v = round(v, 10)
+                    elif isinstance(v, (list, dict)):
+                        v = json.dumps(v, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+                    elif not isinstance(v, str):
+                        v = str(v)
+                    normalized_vars[k] = v
 
             sorted_items = tuple(sorted(normalized_vars.items()))
             repr_str = f"{template_name}||{sorted_items}"
-            return hashlib.md5(repr_str.encode('utf-8')).hexdigest()
+            return hashlib.blake2b(repr_str.encode('utf-8'), digest_size=20).hexdigest()
         except Exception as e:
             logger.warning(f"缓存 key 生成失败，使用 fallback: {e}")
-            return hashlib.md5(template_name.encode('utf-8')).hexdigest()
+            return hashlib.blake2b(template_name.encode('utf-8'), digest_size=20).hexdigest()
 
     # ========== 异步底层存储接口（子类必须实现）==========
     @abstractmethod
