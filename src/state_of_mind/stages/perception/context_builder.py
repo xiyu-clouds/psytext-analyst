@@ -1,8 +1,8 @@
 from typing import Dict, List, Set, Tuple, Optional, Any
 from src.state_of_mind.stages.perception.prompt_builder import PromptBuilder
 from .constants import (
-    LLM_PARTICIPANTS_EXTRACTION, LLM_INFERENCE,
-    LLM_EXPLICIT_MOTIVATION_EXTRACTION
+    LLM_PARTICIPANTS_EXTRACTION, LLM_STRATEGY_ANCHOR, LLM_CONTRADICTION_MAP, LLM_MANIPULATION_DECODE,
+    LLM_MINIMAL_VIABLE_ADVICE,
 )
 from src.state_of_mind.utils.logger import LoggerManager as logger
 from .participant_filter import ParticipantFilter
@@ -30,7 +30,7 @@ class ContextBuilder:
         rendered_prompt = f"{prompt_template}{build_context_desc}"
         return rendered_prompt
 
-    def build_parallel_context(
+    def build_common_context(
             self,
             step_name: str,
             context: Dict[str, Any],
@@ -46,18 +46,22 @@ class ContextBuilder:
             start_marker = end_marker = readable = ""
             if step_name == LLM_PARTICIPANTS_EXTRACTION:
                 start_marker, end_marker, readable = "### PARTICIPANTS_VALID_INFORMATION BEGIN", "### PARTICIPANTS_VALID_INFORMATION END", "参与者有效信息上下文"
-            elif step_name == LLM_INFERENCE:
-                start_marker, end_marker, readable = "### INFERENCE_CONTEXT BEGIN", "### INFERENCE_CONTEXT END", "合理推演有效信息上下文"
-            elif step_name == LLM_EXPLICIT_MOTIVATION_EXTRACTION:
-                start_marker, end_marker, readable = "### EXPLICIT_MOTIVATION_CONTEXT BEGIN", "### EXPLICIT_MOTIVATION_CONTEXT END", "显性动机有效信息上下文"
+            elif step_name == LLM_STRATEGY_ANCHOR:
+                start_marker, end_marker, readable = "### STRATEGY_ANCHOR_CONTEXT BEGIN", "### STRATEGY_ANCHOR_CONTEXT END", "策略锚定有效信息上下文"
+            elif step_name == LLM_CONTRADICTION_MAP:
+                start_marker, end_marker, readable = "### CONTRADICTION_MAP_CONTEXT BEGIN", "### CONTRADICTION_MAP_CONTEXT END", "矛盾暴露有效信息上下文"
+            elif step_name == LLM_MANIPULATION_DECODE:
+                start_marker, end_marker, readable = "### MANIPULATION_DECODE_CONTEXT BEGIN", "### MANIPULATION_DECODE_CONTEXT END", "操控机制解码有效信息上下文"
+            elif step_name == LLM_MINIMAL_VIABLE_ADVICE:
+                start_marker, end_marker, readable = "### MINIMAL_VIABLE_ADVICE_CONTEXT BEGIN", "### MINIMAL_VIABLE_ADVICE_CONTEXT END", "最小可行性建议有效信息上下文"
             wrapped = self.wrap_with_context_markers(raw_desc, start_marker, end_marker, readable)
             context_desc_info.append(wrapped)
         except Exception as e:
             logger.error(f"[{step_name}] 动态描述生成失败: {e}")
 
     """批量构造全部感知数据上下文"""
-    def build_serial_context_batch(self, context: Dict[str, Any]) -> str:
-        excluded = {"user_input", "llm_model", "participants"}
+    def build_perception_context_batch(self, context: Dict[str, Any]) -> str:
+        excluded = {"user_input", "llm_model", "participants", "pre_screening", "eligibility"}
         descriptions = []
         for key, value in context.items():
             if key.startswith("__") or key in excluded:
@@ -105,12 +109,27 @@ class ContextBuilder:
 
     @staticmethod
     def inject_allowed_context(prompt: str, context_desc_info: List[str], allowed_markers: Set[str]) -> str:
+        # 为每个 marker 记录是否已注入
+        injected_markers = set()
         for ctx_str in context_desc_info:
             if not ctx_str or not isinstance(ctx_str, str):
                 continue
-            if any(ctx_str.lstrip().startswith(marker) for marker in allowed_markers):
-                prompt += ctx_str
+            stripped = ctx_str.lstrip()
+            for marker in allowed_markers:
+                if marker in injected_markers:
+                    continue  # 已注入，跳过
+                if stripped.startswith(marker):
+                    prompt += ctx_str
+                    injected_markers.add(marker)
+                    break  # 一个 ctx_str 只匹配一个 marker 即可
         return prompt
+
+    # 更好，后期可迭代完整替换
+    # def inject_allowed_context(prompt: str, context_desc_map: Dict[str, str], allowed_markers: Set[str]) -> str:
+    #     for marker in allowed_markers:
+    #         if marker in context_desc_map:
+    #             prompt += context_desc_map[marker]
+    #     return prompt
 
     @staticmethod
     def update_context_from_result(

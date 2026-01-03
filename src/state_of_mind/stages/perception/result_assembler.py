@@ -1,4 +1,5 @@
-from typing import Dict, Any, List, Tuple
+import re
+from typing import Dict, Any, List, Tuple, Set, Optional
 from copy import deepcopy
 import uuid
 import time
@@ -6,9 +7,9 @@ from src.state_of_mind.stages.perception.executor import StepExecutor
 from src.state_of_mind.stages.perception.prompt_builder import PromptBuilder
 from src.state_of_mind.utils.logger import LoggerManager as logger
 from .constants import (
-    SEMANTIC_MODULES_L1,
-    PREPROCESSING, PARALLEL, SERIAL,
-    CATEGORY_SUGGESTION
+    CATEGORY_SUGGESTION, ALL_STEPS_FOR_FRONTEND, MENTION_TYPES_CONFIG, PARALLEL_PERCEPTION, PARALLEL_PREPROCESSING,
+    PARALLEL_HIGH_ORDER, SERIAL_SUGGESTION, PARALLEL_PERCEPTION_KEYS, SERIAL_SUGGESTION_KEYS, PARALLEL_HIGH_ORDER_KEYS,
+    PARALLEL_PREPROCESSING_KEYS, OTHER
 )
 from ...config import config
 
@@ -79,87 +80,110 @@ class ResultAssembler:
         result["participants"] = processed
 
     def _calculate_privacy_level(self, context: Dict[str, Any]) -> float:
-        """基于上下文内容丰富度计算隐私等级（0.0 ~ 1.0）"""
-        excluded_fields = {"user_input", "llm_model", "pre_screening", "eligibility"}
-        count = sum(
-            1 for k in context.keys()
-            if not k.startswith("__") and k not in excluded_fields
-        )
-        privacy_score = count * 0.05
+        score = 0.0
 
-        # 推理层 +0.05
-        if self._has_valid_inference(context.get("inference")):
-            privacy_score += 0.05
+        # ─── 1. 预处理：仅 "participants" 有效（+0.06）───────────────
+        if "participants" in PARALLEL_PREPROCESSING_KEYS:
+            data = context.get("participants")
+            if data and self._is_valid_participants(data):
+                score += 0.06
 
-        # 显式动机层 +0.05
-        if self._has_valid_explicit_motivation(context.get("explicit_motivation")):
-            privacy_score += 0.05
+        # ─── 2. 感知层：12 步，每有效一步 +0.04 ─────────────────────
+        for key in PARALLEL_PERCEPTION_KEYS:
+            data = context.get(key)
+            if data and self._is_valid_perception_module(data):
+                score += 0.04
 
-        # 合理建议层 +0.1
-        if self._has_valid_rational_advice(context.get("rational_advice")):
-            privacy_score += 0.1
+        # ─── 3. 高阶层（策略、矛盾、操控）：3 步，每步 +0.11 ─────────
+        for key in PARALLEL_HIGH_ORDER_KEYS:
+            data = context.get(key)
+            if data and self._is_valid_high_order_module(data):
+                score += 0.11
 
-        return min(round(privacy_score, 2), 1.0)
+        # ─── 4. 建议层（单独在 SERIAL_SUGGESTION）：1 步，+0.11 ──────
+        for key in SERIAL_SUGGESTION_KEYS:  # 通常只有一个
+            data = context.get(key)
+            if data and self._is_valid_suggestion_module(data):
+                score += 0.11
+                break  # 防止多个（但一般就一个）
 
-    @staticmethod
-    def _has_valid_inference(inference) -> bool:
-        if not isinstance(inference, dict):
-            return False
-        has_summary_evidence = (
-                isinstance(inference.get("summary"), str) and inference["summary"].strip() and
-                isinstance(inference.get("evidence"), list) and len(inference["evidence"]) > 0
-        )
-        has_events = (
-                isinstance(inference.get("events"), list) and
-                any(
-                    isinstance(item, dict) and
-                    isinstance(item.get("semantic_notation"), str) and item["semantic_notation"].strip() and
-                    isinstance(item.get("evidence"), list) and len(item["evidence"]) > 0
-                    for item in inference["events"]
-                )
-        )
-        return has_summary_evidence and has_events
+        return min(round(score, 2), 1.0)
 
     @staticmethod
-    def _has_valid_explicit_motivation(explicit_motivation) -> bool:
-        if not isinstance(explicit_motivation, dict):
+    def _is_valid_participants(data: Any) -> bool:
+        if not isinstance(data, list) or not data:
             return False
-        has_summary_evidence = (
-                isinstance(explicit_motivation.get("summary"), str) and explicit_motivation["summary"].strip() and
-                isinstance(explicit_motivation.get("evidence"), list) and len(explicit_motivation["evidence"]) > 0
+        return any(
+            isinstance(item, dict) and
+            isinstance(item.get("entity"), str) and
+            item["entity"].strip()
+            for item in data
         )
-        has_events = (
-                isinstance(explicit_motivation.get("events"), list) and
-                any(
-                    isinstance(item, dict) and
-                    isinstance(item.get("semantic_notation"), str) and item["semantic_notation"].strip() and
-                    isinstance(item.get("evidence"), list) and len(item["evidence"]) > 0
-                    for item in explicit_motivation["events"]
-                )
-        )
-        return has_summary_evidence and has_events
 
-    def _has_valid_rational_advice(self, rational_advice) -> bool:
-        if not isinstance(rational_advice, dict):
+    @staticmethod
+    def _is_valid_perception_module(data: Any) -> bool:
+        # 感知模块根必须是 dict（如 temporal, spatial, emotional 等）
+        if not isinstance(data, dict):
             return False
-        has_summary_evidence = (
-                isinstance(rational_advice.get("summary"), str) and rational_advice["summary"].strip() and
-                isinstance(rational_advice.get("evidence"), list) and len(rational_advice["evidence"]) > 0
+
+        events = data.get("events")
+        if not isinstance(events, list) or not events:
+            return False
+
+        # 至少一个 event 有有效的 semantic_notation + evidence
+        return any(
+            isinstance(ev, dict) and
+            isinstance(ev.get("semantic_notation"), str) and ev["semantic_notation"].strip() and
+            isinstance(ev.get("evidence"), list) and len(ev["evidence"]) > 0
+            for ev in events
         )
-        substantive_fields = {
-            "safety_first_intervention",
-            "systemic_leverage_point",
-            "incremental_strategy",
-            "stakeholder_tradeoffs",
-            "long_term_exit_path",
-            "cultural_adaptation_needed",
-            "fallback_plan"
-        }
-        has_substantive = any(
-            self._is_value_effective(rational_advice.get(field))
-            for field in substantive_fields
+
+    @staticmethod
+    def _is_valid_high_order_module(data: Any) -> bool:
+        """用于策略、矛盾、操控"""
+        if not isinstance(data, dict):
+            return False
+        synthesis_ok = isinstance(data.get("synthesis"), str) and data["synthesis"].strip()
+        evidence_ok = isinstance(data.get("evidence"), list) and len(data["evidence"]) > 0
+        events_ok = isinstance(data.get("events"), list) and any(
+            isinstance(ev, dict) and
+            isinstance(ev.get("semantic_notation"), str) and ev["semantic_notation"].strip() and
+            isinstance(ev.get("evidence"), list) and len(ev["evidence"]) > 0
+            for ev in data["events"]
         )
-        return has_summary_evidence and has_substantive
+        return synthesis_ok and evidence_ok and events_ok
+
+    @staticmethod
+    def _is_valid_suggestion_module(data: Any) -> bool:
+        if not isinstance(data, dict):
+            return False
+        synthesis_ok = isinstance(data.get("synthesis"), str) and data["synthesis"].strip()
+        evidence_ok = isinstance(data.get("evidence"), list) and len(data["evidence"]) > 0
+        if not (synthesis_ok and evidence_ok):
+            return False
+
+        events = data.get("events")
+        if not isinstance(events, list):
+            return False
+
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            counter = ev.get("counter_action")
+            target = ev.get("targeted_mechanism")
+            disrupt = ev.get("expected_disruption")
+            sn = ev.get("semantic_notation")
+            evi = ev.get("evidence")
+
+            if (
+                    isinstance(sn, str) and sn.strip() and
+                    isinstance(evi, list) and len(evi) > 0 and
+                    isinstance(counter, str) and counter.strip() and
+                    isinstance(target, str) and target.strip() and
+                    isinstance(disrupt, str) and disrupt.strip()
+            ):
+                return True
+        return False
 
     @staticmethod
     def _inject_privacy_level_into_meta(result: Dict[str, Any], privacy_level: float) -> None:
@@ -221,7 +245,7 @@ class ResultAssembler:
         present_but_empty = []
         missing_or_invalid = []
 
-        for mod_name in SEMANTIC_MODULES_L1:
+        for mod_name in PARALLEL_PERCEPTION_KEYS:
             mod = result.get(mod_name)
             if mod is None:
                 missing_or_invalid.append(f"{mod_name} (缺失)")
@@ -277,93 +301,90 @@ class ResultAssembler:
         errors = []
         l2_ok = True
 
-        # 1. inference
-        inference = result.get("inference")
-        if not isinstance(inference, dict):
-            errors.append("L2: inference 缺失或非字典")
-            l2_ok = False
-        else:
-            top_valid = (
-                    isinstance(inference.get("summary"), str) and inference["summary"].strip() and
-                    isinstance(inference.get("evidence"), list) and len(inference["evidence"]) > 0
-            )
-            event_valid = False
-            events = inference.get("events")
-            if isinstance(events, list):
-                for item in events:
-                    if isinstance(item, dict):
-                        sn = item.get("semantic_notation")
-                        evi = item.get("evidence")
-                        if isinstance(sn, str) and sn.strip() and isinstance(evi, list) and len(evi) > 0:
-                            event_valid = True
-                            break
-            if not (top_valid and event_valid):
-                reasons = ["顶层 summary/evidence 无效"] if not top_valid else []
-                if not event_valid:
-                    reasons.append("events 中无 semantic_notation+evidence 有效项")
-                errors.append(f"L2: inference 未同时满足双重要求 ({'; '.join(reasons)})")
-                l2_ok = False
+        def is_valid_module(data: Optional[Dict], module_name: str,
+                            require_core_fields_in_events: bool = False) -> bool:
+            """
+            通用校验函数：
+            - 要求 data 是 dict
+            - synthesis 非空 str
+            - evidence 非空 list
+            - events 中至少一个 item 同时有 non-empty semantic_notation + non-empty evidence
+            - 若 require_core_fields_in_events=True，则事件还需包含特定核心字段（用于 minimal_viable_advice）
+            """
+            if not isinstance(data, dict):
+                errors.append(f"L2: {module_name} 缺失或非字典")
+                return False
 
-        # 2. explicit_motivation
-        explicit_motivation = result.get("explicit_motivation")
-        if not isinstance(explicit_motivation, dict):
-            errors.append("L2: explicit_motivation 缺失或非字典")
-            l2_ok = False
-        else:
-            top_valid = (
-                    isinstance(explicit_motivation.get("summary"), str) and explicit_motivation["summary"].strip() and
-                    isinstance(explicit_motivation.get("evidence"), list) and len(explicit_motivation["evidence"]) > 0
-            )
-            event_valid = False
-            events = explicit_motivation.get("events")
-            if isinstance(events, list):
-                for item in events:
-                    if isinstance(item, dict):
-                        sn = item.get("semantic_notation")
-                        evi = item.get("evidence")
-                        if isinstance(sn, str) and sn.strip() and isinstance(evi, list) and len(evi) > 0:
-                            event_valid = True
-                            break
-            if not (top_valid and event_valid):
-                reasons = ["顶层 summary/evidence 无效"] if not top_valid else []
-                if not event_valid:
-                    reasons.append("events 中无 semantic_notation+evidence 有效项")
-                errors.append(f"L2: explicit_motivation 未同时满足双重要求 ({'; '.join(reasons)})")
-                l2_ok = False
-
-        # 3. rational_advice
-        rational_advice = result.get("rational_advice")
-        if not isinstance(rational_advice, dict):
-            errors.append("L2: rational_advice 缺失或非字典")
-            l2_ok = False
-        else:
-            has_summary_evidence = (
-                    isinstance(rational_advice.get("summary"), str) and rational_advice["summary"].strip() and
-                    isinstance(rational_advice.get("evidence"), list) and len(rational_advice["evidence"]) > 0
-            )
-            substantive_fields = {
-                "safety_first_intervention",
-                "systemic_leverage_point",
-                "incremental_strategy",
-                "stakeholder_tradeoffs",
-                "long_term_exit_path",
-                "cultural_adaptation_needed",
-                "fallback_plan"
-            }
-            has_substantive_content = any(
-                rational_advice.get(field) not in (None, "", [], {}) or
-                (isinstance(rational_advice.get(field), dict) and
-                 any(v not in (None, "", [], {}) for v in rational_advice[field].values()))
-                for field in substantive_fields
-            )
-            if not (has_summary_evidence and has_substantive_content):
+            # 顶层 synthesis + evidence
+            has_synthesis = isinstance(data.get("synthesis"), str) and data["synthesis"].strip()
+            has_global_evidence = isinstance(data.get("evidence"), list) and len(data["evidence"]) > 0
+            if not (has_synthesis and has_global_evidence):
                 reasons = []
-                if not has_summary_evidence:
-                    reasons.append("summary 或 evidence 无效")
-                if not has_substantive_content:
-                    reasons.append("无实质性建议内容")
-                errors.append(f"L2: rational_advice 无效 ({'; '.join(reasons)})")
-                l2_ok = False
+                if not has_synthesis:
+                    reasons.append("synthesis 无效")
+                if not has_global_evidence:
+                    reasons.append("全局 evidence 为空")
+                errors.append(f"L2: {module_name} 顶层字段无效 ({'; '.join(reasons)})")
+                return False
+
+            # events 中至少一个有效事件
+            events = data.get("events")
+            if not isinstance(events, list):
+                errors.append(f"L2: {module_name}.events 非列表")
+                return False
+
+            valid_event_found = False
+            for item in events:
+                if not isinstance(item, dict):
+                    continue
+                sn = item.get("semantic_notation")
+                evi = item.get("evidence")
+                has_sn = isinstance(sn, str) and sn.strip()
+                has_evi = isinstance(evi, list) and len(evi) > 0
+
+                if not (has_sn and has_evi):
+                    continue
+
+                # 针对 minimal_viable_advice 的额外字段校验
+                if require_core_fields_in_events:
+                    counter = item.get("counter_action")
+                    target = item.get("targeted_mechanism")
+                    disrupt = item.get("expected_disruption")
+                    if not (
+                            isinstance(counter, str) and counter.strip() and
+                            isinstance(target, str) and target.strip() and
+                            isinstance(disrupt, str) and disrupt.strip()
+                    ):
+                        continue  # 此事件不满足建议的核心三要素
+
+                valid_event_found = True
+                break
+
+            if not valid_event_found:
+                errors.append(f"L2: {module_name} 无有效事件（需 semantic_notation + evidence，建议类还需核心三字段）")
+                return False
+
+            return True
+
+        # ──────────────── 校验前三项：策略 / 矛盾 / 操控 ────────────────
+        strategy_ok = is_valid_module(result.get("strategy_anchor"), "strategy_anchor")
+        contradiction_ok = is_valid_module(result.get("contradiction_map"), "contradiction_map")
+        manipulation_ok = is_valid_module(result.get("manipulation_decode"), "manipulation_decode")
+
+        at_least_one_of_first_three = strategy_ok or contradiction_ok or manipulation_ok
+        if not at_least_one_of_first_three:
+            # 清理前面可能累积的重复错误（可选），这里保留全部
+            errors.append("L2: 策略锚定、矛盾暴露、操控机制解码三者均无效（至少需一项有效）")
+            l2_ok = False
+
+        # ──────────────── 校验第四项：最小可行性建议（必须有效）────────────────
+        advice_ok = is_valid_module(
+            result.get("minimal_viable_advice"),
+            "minimal_viable_advice",
+            require_core_fields_in_events=True  # 启用建议类特殊校验
+        )
+        if not advice_ok:
+            l2_ok = False
 
         return l2_ok, errors
 
@@ -424,12 +445,16 @@ class ResultAssembler:
 
             prompt_type = step.get("prompt_type")
             raw_record = {"step_name": step.get("step_name"), "raw_response": step.get("__raw_response")}
-            if prompt_type == PREPROCESSING:
-                raw_response_records[PREPROCESSING].append(raw_record)
-            elif prompt_type == PARALLEL:
-                raw_response_records[PARALLEL].append(raw_record)
+            if prompt_type == PARALLEL_PREPROCESSING:
+                raw_response_records[PARALLEL_PREPROCESSING].append(raw_record)
+            elif prompt_type == PARALLEL_PERCEPTION:
+                raw_response_records[PARALLEL_PERCEPTION].append(raw_record)
+            elif prompt_type == PARALLEL_HIGH_ORDER:
+                raw_response_records[PARALLEL_HIGH_ORDER].append(raw_record)
+            elif prompt_type == SERIAL_SUGGESTION:
+                raw_response_records[SERIAL_SUGGESTION].append(raw_record)
             else:
-                raw_response_records[SERIAL].append(raw_record)
+                raw_response_records[OTHER].append(raw_record)
 
         return {
             "__valid_structure": all_valid,
@@ -447,7 +472,9 @@ class ResultAssembler:
             result: Dict[str, Any],
             user_input: str,
             suggestion_type: str,
-            title: str = "全息感知基底分析报告"
+            all_step_results: List[Dict],
+            prompt_records: Dict,
+            title: str = "全息感知基底分析报告",
     ) -> None:
         result.setdefault("meta", {})["title"] = title
         result.setdefault("analysis", {})
@@ -458,8 +485,13 @@ class ResultAssembler:
                 user_input=user_input,
                 suggestion_type=suggestion_type
             )
-            suggestion_content = await self.step_executor.execute_suggestion(suggestion_prompt)
-
+            step_name = "suggestion_generation"
+            prompt_type = "suggestion"
+            prompt_records.setdefault(OTHER, []).append({
+                "step_name": step_name,
+                "prompt": suggestion_prompt
+            })
+            suggestion_content = await self.step_executor.execute_suggestion(suggestion_prompt, step_name, prompt_type, all_step_results)
             suggestion_record = {
                 "content": suggestion_content,
                 "type": suggestion_type,
@@ -513,3 +545,214 @@ class ResultAssembler:
             "padding": config.WATERMARK_PADDING,
         }
         result["watermark"] = watermark_config
+
+    async def inject_global_semantic_signature(self, result: Dict[str, Any], user_input: str, all_step_results: List[Dict], prompt_records: Dict,):
+        result.setdefault("meta", {})["global_semantic_signature"] = ""
+
+        try:
+            prompt = self.prompt_builder.build_global_signature_prompt(user_input=user_input)
+            step_name = "global_semantic_signature"
+            prompt_type = "semantic_signature"
+            prompt_records.setdefault(OTHER, []).append({
+                "step_name": step_name,
+                "prompt": prompt
+            })
+            raw_output = await self.step_executor.execute_global_signature(prompt, step_name, prompt_type, all_step_results)
+
+            cleaned = self._sanitize_global_signature(raw_output)
+            if not cleaned:
+                cleaned = "raw_complex_invalid_or_empty_signature"
+
+            result["meta"]["global_semantic_signature"] = cleaned
+            logger.info(
+                "✅ 全局语义标识生成成功",
+                extra={"model": self.llm_model, "signature_length": len(cleaned)}
+            )
+        except Exception as e:
+            error_msg = f"全局语义标识生成失败: {str(e)}"
+            logger.exception(error_msg, extra={"model": self.llm_model})
+            result["meta"]["global_semantic_signature"] = "raw_complex_generation_failed"
+
+    @staticmethod
+    def _sanitize_global_signature(raw: str) -> str:
+        if not raw or not isinstance(raw, str):
+            return ""
+        line = raw.strip().split("\n")[0].strip().lower()
+        if not line.startswith("raw_") or len(line) > 256:
+            return ""
+        if not re.fullmatch(r"[a-z0-9_]+", line):
+            return ""
+        return line
+
+    # ======================
+    # 预处理注入html模板数据
+    # ======================
+    async def preprocess_for_html_rendering(self, result: Dict[str, Any]) -> None:
+        """
+        动态调度预处理：
+        1. 从 ALL_STEPS_FOR_FRONTEND 获取所有非 preprocessing 步骤的 driven_by（即顶级字段名）
+        2. 对 result 中存在的字段，按 naming convention 自动调用 _preprocess_{key}
+        """
+        candidate_keys = {
+            step["driven_by"]
+            for step in ALL_STEPS_FOR_FRONTEND
+            if step.get("type") == PARALLEL_PERCEPTION
+        }
+
+        for key in candidate_keys:
+            if not (key in result and result[key]):
+                continue
+
+            method_name = f"_preprocess_{key}"
+            preprocessor = getattr(self, method_name, None)
+
+            if preprocessor is None:
+                logger.debug(f"ℹ️ 无预处理函数: {method_name}，跳过")
+                continue
+
+            try:
+                preprocessor(result)
+            except Exception as e:
+                logger.warning(
+                    f"⚠️ HTML 预处理失败: {key}",
+                    extra={"error": str(e)}
+                )
+
+    def _preprocess_temporal(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 temporal 数据，为 HTML 模板生成按类型分组的时间短语列表。
+        输入：result（含 result["temporal"]）
+        副作用：在每个 event 中注入 temporal_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "temporal", MENTION_TYPES_CONFIG["temporal"])
+
+    def _preprocess_spatial(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 spatial 数据，为 HTML 模板生成按类型分组的空间短语列表。
+        输入：result（含 result["spatial"]）
+        副作用：在每个 event 中注入 spatial_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "spatial", MENTION_TYPES_CONFIG["spatial"])
+
+    def _preprocess_visual(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 visual 数据，为 HTML 模板生成按类型分组的视觉短语列表。
+        输入：result（含 result["visual"]）
+        副作用：在每个 event 中注入 visual_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "visual", MENTION_TYPES_CONFIG["visual"])
+
+    def _preprocess_auditory(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 auditory 数据，为 HTML 模板生成按类型分组的听觉短语列表。
+        输入：result（含 result["auditory"]）
+        副作用：在每个 event 中注入 auditory_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "auditory", MENTION_TYPES_CONFIG["auditory"])
+
+    def _preprocess_olfactory(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 olfactory 数据，为 HTML 模板生成按类型分组的嗅觉短语列表。
+        输入：result（含 result["olfactory"]）
+        副作用：在每个 event 中注入 olfactory_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "olfactory", MENTION_TYPES_CONFIG["olfactory"])
+
+    def _preprocess_tactile(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 tactile 数据，为 HTML 模板生成按类型分组的触觉短语列表。
+        输入：result（含 result["tactile"]）
+        副作用：在每个 event 中注入 tactile_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "tactile", MENTION_TYPES_CONFIG["tactile"])
+
+    def _preprocess_gustatory(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 gustatory 数据，为 HTML 模板生成按类型分组的味觉短语列表。
+        输入：result（含 result["gustatory"]）
+        副作用：在每个 event 中注入 gustatory_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "gustatory", MENTION_TYPES_CONFIG["gustatory"])
+
+    def _preprocess_interoceptive(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 interoceptive 数据，为 HTML 模板生成按类型分组的内感受短语列表。
+        输入：result（含 result["interoceptive"]）
+        副作用：在每个 event 中注入 interoceptive_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "interoceptive", MENTION_TYPES_CONFIG["interoceptive"])
+
+    def _preprocess_cognitive(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 cognitive 数据，为 HTML 模板生成按类型分组的认知短语列表。
+        输入：result（含 result["cognitive"]）
+        副作用：在每个 event 中注入 cognitive_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "cognitive", MENTION_TYPES_CONFIG["cognitive"])
+
+    def _preprocess_bodily(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 bodily 数据，为 HTML 模板生成按类型分组的躯体化表现短语列表。
+        输入：result（含 result["bodily"]）
+        副作用：在每个 event 中注入 bodily_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "bodily", MENTION_TYPES_CONFIG["bodily"])
+
+    def _preprocess_emotional(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 emotional 数据，为 HTML 模板生成按类型分组的情感短语列表。
+        输入：result（含 result["emotional"]）
+        副作用：在每个 event 中注入 emotional_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "emotional", MENTION_TYPES_CONFIG["emotional"])
+
+    def _preprocess_social_relation(self, result: Dict[str, Any]) -> None:
+        """
+        预处理 social_relation 数据，为 HTML 模板生成按类型分组的社会关系短语列表。
+        输入：result（含 result["social_relation"]）
+        副作用：在每个 event 中注入 social_relation_mentions_by_type 字段
+        """
+        self._preprocess_generic_mentions(result, "social_relation", MENTION_TYPES_CONFIG["social_relation"])
+
+    @staticmethod
+    def _preprocess_generic_mentions(
+            result: Dict[str, Any],
+            top_key: str,
+            valid_types: Set[str]
+    ) -> None:
+        """
+        基于 naming convention 的通用 mentions 预处理器。
+
+        约定：
+          - 输入 mentions 字段名：{top_key}_mentions
+          - 输出分组字段名：{top_key}_mentions_by_type
+        """
+        root_obj = result.get(top_key)
+        if not isinstance(root_obj, dict):
+            return
+
+        events = root_obj.get("events")
+        if not isinstance(events, list):
+            return
+
+        mentions_key = f"{top_key}_mentions"
+        output_key = f"{top_key}_mentions_by_type"
+
+        for event in events:
+            if not isinstance(event, dict):
+                continue
+
+            mentions = event.get(mentions_key)
+            if not isinstance(mentions, list):
+                continue
+
+            grouped = {t: [] for t in valid_types}
+            for item in mentions:
+                if not isinstance(item, dict):
+                    continue
+                phrase = item.get("phrase")
+                itype = item.get("type")
+                if isinstance(phrase, str) and itype in valid_types:
+                    grouped[itype].append(phrase)
+
+            event[output_key] = grouped

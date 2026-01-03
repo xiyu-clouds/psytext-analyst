@@ -2,8 +2,13 @@
 import json
 from typing import Any, Dict, List, Tuple, Optional, Set
 from src.state_of_mind.prompt_templates.prompt_templates import LLM_PROMPTS_SCHEMA
-from .constants import PARALLEL, SERIAL, PREPROCESSING, get_effective_policy, \
-    render_iron_law_from_policy, COREFERENCE_RESOLUTION_BATCH, CATEGORY_SUGGESTION
+from src.state_of_mind.stages.perception.constants import get_effective_policy, \
+    render_iron_law_from_policy, COREFERENCE_RESOLUTION_BATCH, CATEGORY_SUGGESTION, \
+    ALL_STEPS_FOR_FRONTEND, PERCEPTION_LAYERS, CATEGORY_RAW, \
+    GLOBAL_SEMANTIC_SIGNATURE, PARALLEL_PREPROCESSING_STEPS, PARALLEL_PREPROCESSING, PARALLEL_PERCEPTION, \
+    PARALLEL_PERCEPTION_STEPS, SERIAL_SUGGESTION_STEPS, PARALLEL_HIGH_ORDER_STEPS, SERIAL_SUGGESTION, \
+    PARALLEL_HIGH_ORDER, PARALLEL_PERCEPTION_KEYS, PARALLEL_HIGH_ORDER_KEYS, SERIAL_SUGGESTION_KEYS, \
+    PARALLEL_PREPROCESSING_KEYS
 # from src.state_of_mind.utils.ip_timezone import IPBasedTimezoneResolver
 from src.state_of_mind.utils.logger import LoggerManager as logger
 # from src.state_of_mind.utils.network import get_public_ip
@@ -15,51 +20,20 @@ class PromptBuilder:
     """
     CHINESE_NAME = "Prompt构造器"
 
-    def build_raw(self, template_name: str, **template_vars: Any) -> Dict[str, Any]:
-        """
-        构建 Prompt 并返回完整上下文数据
-        """
-        logger.info("🔄 开始构建 build_raw Prompt", module_name=self.CHINESE_NAME)
-        if "user_input" not in template_vars:
-            error_msg = "缺失必需字段: user_input"
-            logger.error(error_msg, module_name=self.CHINESE_NAME)
-            raise ValueError(error_msg)
-
-        raw_schema = LLM_PROMPTS_SCHEMA.get(template_name)
-        if not raw_schema:
-            error_msg = f"模板未定义: {template_name}"
-            logger.error(error_msg, module_name=self.CHINESE_NAME)
-            raise ValueError(error_msg)
-
-        schema_version = raw_schema.get("version")
-        pipeline = raw_schema.get("pipeline")
-        preprocessing_steps, parallel_steps, serial_steps = PromptBuilder._split_pipeline(pipeline)
-
-        preprocessing_prompts = PromptBuilder._build_step_prompts(
-            steps=preprocessing_steps,
-            step_type=PREPROCESSING
-        )
-
-        parallel_prompts = PromptBuilder._build_step_prompts(
-            steps=parallel_steps,
-            step_type=PARALLEL
-        )
-
-        serial_prompts = PromptBuilder._build_step_prompts(
-            steps=serial_steps,
-            step_type=SERIAL
-        )
-
-        logger.info(
-            f"✅ Prompt 构建完成, preprocessing_count = {len(preprocessing_prompts)} | "
-            f"parallel_count = {len(parallel_prompts)} | serial_count = {len(serial_prompts)} | ",
-            module_name=PromptBuilder.CHINESE_NAME
-        )
+    def build_raw(self) -> Dict[str, Any]:
         return {
-            "template_name": template_name,
-            "preprocessing_prompts": preprocessing_prompts,
-            "parallel_prompts": parallel_prompts,
-            "serial_prompts": serial_prompts
+            "preprocessing_prompts": self._build_step_prompts(
+                list(PARALLEL_PREPROCESSING_STEPS.values()), PARALLEL_PREPROCESSING
+            ),
+            "perception_prompts": self._build_step_prompts(
+                list(PARALLEL_PERCEPTION_STEPS.values()), PARALLEL_PERCEPTION
+            ),
+            "high_order_prompts": self._build_step_prompts(
+                list(PARALLEL_HIGH_ORDER_STEPS.values()), PARALLEL_HIGH_ORDER
+            ),
+            "suggestion_prompts": self._build_step_prompts(
+                list(SERIAL_SUGGESTION_STEPS.values()), SERIAL_SUGGESTION
+            ),
         }
 
     def build_suggestion(self, template_name: str, user_input: str, suggestion_type: str) -> str:
@@ -97,6 +71,23 @@ class PromptBuilder:
         logger.info("✅ build_suggestion Prompt 构建成功", module_name=self.CHINESE_NAME)
         return final_prompt
 
+    def build_global_signature_prompt(self, user_input):
+        prompt_template = LLM_PROMPTS_SCHEMA.get(GLOBAL_SEMANTIC_SIGNATURE)
+        if not prompt_template:
+            error_msg = f"模板中缺少全局语义标识的 prompt 定义"
+            logger.error(error_msg, module_name=self.CHINESE_NAME)
+            raise ValueError(error_msg)
+
+        try:
+            final_prompt = prompt_template.format(user_input=user_input)
+        except Exception as e:
+            error_msg = f"模板渲染失败: {e}"
+            logger.error(error_msg, module_name=self.CHINESE_NAME)
+            raise ValueError(error_msg)
+
+        logger.info("✅ build_global_signature_prompt Prompt 构建成功", module_name=self.CHINESE_NAME)
+        return final_prompt
+
     @staticmethod
     def build_coref_prompt(
             user_input: str,
@@ -123,40 +114,97 @@ class PromptBuilder:
             pronoun_mapping_str=pronoun_mapping_str
         )
 
-    @staticmethod
-    def _split_pipeline(pipeline: List[Dict]) -> Tuple[List[Dict], List[Dict], List[Dict]]:
-        """
-        分离 pipeline 中的预处理、并行、串行任务
-        返回: (preprocessing_steps, parallel_steps, serial_steps)
-        """
-        if not isinstance(pipeline, list):
-            error_msg = "pipeline 必须是列表类型"
-            logger.error(error_msg)
+    def pre_basic_data(self):
+        raw_schema = LLM_PROMPTS_SCHEMA.get(CATEGORY_RAW)
+        if not raw_schema:
+            error_msg = f"模板未定义: {CATEGORY_RAW}"
+            logger.error(error_msg, module_name=self.CHINESE_NAME)
             raise ValueError(error_msg)
 
-        preprocessing = []
-        parallel = []
-        serial = []
+        pipeline = raw_schema.get("pipeline")
+        if not isinstance(pipeline, list):
+            error_msg = f"配置错误: {CATEGORY_RAW}.pipeline 必须是列表，当前值: {repr(pipeline)}"
+            logger.error(error_msg, module_name=self.CHINESE_NAME)
+            raise ValueError(error_msg)
+
+        if len(pipeline) == 0:
+            logger.warning(f"⚠️ 警告: {CATEGORY_RAW}.pipeline 为空列表！将导致前端步骤为空！", module_name=self.CHINESE_NAME)
+            raise ValueError("pipeline 不能为空")
+
+        pipeline = raw_schema.get("pipeline")
+        self._split_pipeline(pipeline)
+
+    @staticmethod
+    def _split_pipeline(pipeline: List[Dict]) -> None:
+        """
+        分离 pipeline 中的预处理、并行、串行任务
+        """
+        # 各类型步骤数据
+        PARALLEL_PREPROCESSING_STEPS.clear()
+        PARALLEL_PERCEPTION_STEPS.clear()
+        PARALLEL_HIGH_ORDER_STEPS.clear()
+        SERIAL_SUGGESTION_STEPS.clear()
+        # 感知类型步骤名
+        PERCEPTION_LAYERS.clear()
+        # 各类型顶级键
+        PARALLEL_PREPROCESSING_KEYS.clear()
+        PARALLEL_PERCEPTION_KEYS.clear()
+        PARALLEL_HIGH_ORDER_KEYS.clear()
+        SERIAL_SUGGESTION_KEYS.clear()
+        # 全部步骤相关数据
+        ALL_STEPS_FOR_FRONTEND.clear()
+
+        valid_types = {
+            PARALLEL_PREPROCESSING,
+            PARALLEL_PERCEPTION,
+            PARALLEL_HIGH_ORDER,
+            SERIAL_SUGGESTION
+        }
 
         for idx, step in enumerate(pipeline):
-            if not isinstance(step, dict):
-                logger.warning(f"跳过非法 pipeline 步骤（非字典）: 索引={idx}")
+            if not isinstance(step, dict) or "step_name" not in step:
                 continue
 
-            step_type = step.get("type", SERIAL)  # 默认为串行
+            step_id = step["step_name"]
+            step_type = step.get("type")
+            label = step.get("label", step_id)
+            driven_by = step.get("driven_by")
 
-            if step_type == PREPROCESSING:
-                preprocessing.append(step)
-            elif step_type == PARALLEL:
-                parallel.append(step)
-            else:
-                serial.append(step)  # 包括 SERIAL 和 未知 type 都归为串行（安全兜底）
+            if step_type not in valid_types:
+                raise ValueError(
+                    f"步骤 '{step_id}' 使用了非法类型: '{step_type}'。"
+                    f"仅允许: {sorted(valid_types)}"
+                )
 
+            # 分组存储
+            if step_type == PARALLEL_PREPROCESSING:
+                PARALLEL_PREPROCESSING_STEPS[step_id] = step
+                PARALLEL_PREPROCESSING_KEYS.add(driven_by)
+            elif step_type == PARALLEL_PERCEPTION:
+                PARALLEL_PERCEPTION_STEPS[step_id] = step
+                PERCEPTION_LAYERS.add(step_id)
+                PARALLEL_PERCEPTION_KEYS.add(driven_by)
+            elif step_type == PARALLEL_HIGH_ORDER:
+                PARALLEL_HIGH_ORDER_STEPS[step_id] = step
+                PARALLEL_HIGH_ORDER_KEYS.add(driven_by)
+            elif step_type == SERIAL_SUGGESTION:
+                SERIAL_SUGGESTION_STEPS[step_id] = step
+                SERIAL_SUGGESTION_KEYS.add(driven_by)
+
+            # 【关键】注入全量前端配置
+            ALL_STEPS_FOR_FRONTEND.append({
+                "id": step_id,
+                "label": label,
+                "type": step_type,
+                "driven_by": driven_by
+            })
         logger.info(
-            f"📊 pipeline 三路分离完成, preprocessing_count = {len(preprocessing)} | parallel_count = {len(parallel)} | "
-            f"serial_count = {len(serial)} | total_steps = {len(pipeline)}", module_name=PromptBuilder.CHINESE_NAME
+            f"✅ 步骤分离完成 | "
+            f"pre={len(PARALLEL_PREPROCESSING_STEPS)} | "
+            f"percep={len(PARALLEL_PERCEPTION_STEPS)} | "
+            f"high={len(PARALLEL_HIGH_ORDER_STEPS)} | "
+            f"sugg={len(SERIAL_SUGGESTION_STEPS)}"
         )
-        return preprocessing, parallel, serial
 
     @staticmethod
     def _build_step_prompts(
@@ -166,79 +214,75 @@ class PromptBuilder:
         """
         构建指定类型（并行/串行）的 prompt 列表，返回 (step_name, driven_by, full_prompt) 元组列表。
         每个 prompt 严格按以下顺序组织：
-          1. role（由调用方定义【唯一信源】与【当前指令】边界）
-          2. sole_mission（强化锚定要求）
-          3. ### 【绝对铁律】（仅含抽象策略，不涉及具体输入块标识）
-          4. ### 当前任务的核心铁律（字段边界、实体规则等）
-          5. ### 输出格式与结构强制要求
-          6. fields schema（JSON 转义后）
+          1. role（角色）
+          2. ### 核心原则（information_source + 通用策略）
+          3. ### 步骤专属规则（来自 step_rules）
+          4. 输出前缀（可选 来自output_prefix）
+          5. 字段结构（来自fields JSON schema）
+          6. 空结果兜底（来自empty_result_fallback）
+          7. 输出后缀（可选 来自output_suffix）
         """
         prompts_with_fields = []
         missing_fields = []
 
         for idx, step in enumerate(steps):
             try:
-                step_name = step["step"]
+                step_name = step["step_name"]
                 role = step["role"]
-                sole_mission = step["sole_mission"]
+                information_source = step["information_source"]
                 fields = step["fields"]
                 driven_by = step.get("driven_by")
-                constraint_profile = step.get("constraint_profile", "unknown")
-                input_requirements = step.get("input_requirements", {})
+                constraint_profile = step.get("constraint_profile")
+                empty_fallback = step.get("empty_result_fallback", "")
+                # 新：使用扁平化的 step_rules
+                step_rules = step.get("step_rules", [])
+                output_prefix = step.get("output_prefix", [])
+                output_suffix = step.get("output_suffix", [])
             except KeyError as e:
                 field = e.args[0]
                 missing_fields.append(f"步骤{idx}.{field}")
                 continue
 
-            # 渲染通用策略铁律
+            # === 渲染通用策略铁律（核心原则）===
             effective_policy = get_effective_policy(step_name)
-            dynamic_iron_law = render_iron_law_from_policy(effective_policy)
+            dynamic_iron_law = render_iron_law_from_policy(effective_policy).strip()
 
-            fields_json = json.dumps(fields, ensure_ascii=False, indent=2)
-            fields_escaped = fields_json.replace('{', '{{').replace('}', '}}')
+            # === 构建 prompt 各部分 ===
+            parts = [role.strip()]
 
-            # === 构建三层铁律（按优先级从高到低）===
-            iron_law_sections = []
+            # 核心原则
+            core_principle_text = "### 核心原则\n" + information_source.strip() + dynamic_iron_law
+            parts.append(core_principle_text)
 
-            # 1️⃣ 通用策略铁律
-            if dynamic_iron_law.strip():
-                iron_law_sections.append(dynamic_iron_law.strip())
+            # 步骤专属规则
+            if step_rules:
+                rules_text = "\n".join(step_rules)
+                parts.append(rules_text)
 
-            # 2️⃣ 任务专属数据与锚定约束
-            data_constraints = input_requirements.get("data_and_anchor_constraints")
-            if data_constraints:
-                iron_law_sections.append(
-                    "### 当前任务的核心铁律（必须绝对遵守）###\n" +
-                    "\n".join(data_constraints)
-                )
+            # 输出前缀
+            if output_prefix:
+                parts.append("\n".join(output_prefix))
 
-            # 3️⃣ 输出结构与格式强制要求
-            output_constraints = input_requirements.get("output_structure_constraints")
-            if output_constraints:
-                iron_law_sections.append(
-                    "### 输出格式与结构强制要求 ###\n" +
-                    "\n".join(output_constraints)
-                )
+            # 字段结构（schema）
+            fields_json_str = json.dumps(fields, ensure_ascii=False, indent=2)
+            parts.append(fields_json_str)
 
-            combined_iron_law = "\n\n".join(iron_law_sections).strip()
+            # 空结果兜底
+            if empty_fallback.strip():
+                parts.append(empty_fallback.strip())
 
-            # === 拼接完整 prompt ===
-            full_prompt_parts = [
-                "### SYSTEM_INSTRUCTIONS BEGIN ###\n",
-                role.strip(),
-                sole_mission.strip()
-            ]
-            if combined_iron_law:
-                full_prompt_parts.append(combined_iron_law)
+            # 输出后缀
+            if output_suffix:
+                parts.append("\n".join(output_suffix))
 
-            full_prompt_parts.append(fields_escaped.strip())
-            full_prompt_parts.append("### SYSTEM_INSTRUCTIONS END ###")
-            full_prompt = "\n".join(full_prompt_parts)
+            # 拼接完整 prompt
+            full_prompt = "\n\n".join(parts).strip()
             prompts_with_fields.append((step_name, driven_by, full_prompt))
-            logger.info(
-                f"📌 步骤 {step_name} 使用约束配置: {constraint_profile}",
-                module_name=PromptBuilder.CHINESE_NAME
-            )
+
+            # logger.info(
+            #     f"📌 步骤 {step_name} 使用约束配置: {constraint_profile}",
+            #     module_name=PromptBuilder.CHINESE_NAME
+            # )
 
         # ❌ 字段缺失校验
         if missing_fields:

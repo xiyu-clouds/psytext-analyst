@@ -21,4 +21,7 @@ async def analyze_text():
 
 
 if __name__ == "__main__":
+    from src.state_of_mind.stages.perception.prompt_builder import PromptBuilder
+    prompt_builder = PromptBuilder()
+    prompt_builder.pre_basic_data()
     asyncio.run(analyze_text())

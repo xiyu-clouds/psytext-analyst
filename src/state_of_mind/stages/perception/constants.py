@@ -1,16 +1,41 @@
 from typing import Dict, List
 from src.state_of_mind.types.perception import ValidationRule
-from src.state_of_mind.utils.data_validator import IS_DICT, IS_STR, IS_LIST, IS_FLOAT, IS_INT, IS_BOOL
+from src.state_of_mind.utils.data_validator import IS_DICT, IS_STR, IS_LIST, IS_BOOL
+
+OTHER = "other"
 
 # 模板类别
 CATEGORY_RAW = "raw"
 CATEGORY_SUGGESTION = "suggestion"
 COREFERENCE_RESOLUTION_BATCH = "coreference_resolution_batch"
+GLOBAL_SEMANTIC_SIGNATURE = "global_semantic_signature"
 
-# 预处理 并行 串行
-PREPROCESSING = "preprocessing"
-PARALLEL = "parallel"
-SERIAL = "serial"
+# prompt 类型
+# 预处理 - 并行
+PARALLEL_PREPROCESSING = "parallel_preprocessing"
+# 感知 - 并行
+PARALLEL_PERCEPTION = "parallel_perception"
+# 高阶 - 并行
+PARALLEL_HIGH_ORDER = "parallel_high_order"
+# 建议 - 串行
+SERIAL_SUGGESTION = "serial_suggestion"
+
+# --- 常量存储 ---
+# === 按类型分组 ===
+PARALLEL_PREPROCESSING_STEPS: Dict[str, dict] = {}
+PARALLEL_PERCEPTION_STEPS: Dict[str, dict] = {}
+PARALLEL_HIGH_ORDER_STEPS: Dict[str, dict] = {}
+SERIAL_SUGGESTION_STEPS: Dict[str, dict] = {}
+# === 辅助集合 ===
+PERCEPTION_LAYERS: set[str] = set()
+PARALLEL_PREPROCESSING_KEYS: set[str] = set()
+PARALLEL_PERCEPTION_KEYS: set[str] = set()
+PARALLEL_HIGH_ORDER_KEYS: set[str] = set()
+SERIAL_SUGGESTION_KEYS: set[str] = set()
+# === 前端全量步骤配置 ===
+ALL_STEPS_FOR_FRONTEND: List[dict] = []
+# --- 初始化标志（模块级，天然全局）---
+PIPELINE_INITIALIZED = False
 
 # 大模型预处理
 LLM_PARTICIPANTS_EXTRACTION = "LLM_PARTICIPANTS_EXTRACTION"
@@ -32,27 +57,13 @@ LLM_PERCEPTION_EMOTIONAL_EXTRACTION = "LLM_PERCEPTION_EMOTIONAL_EXTRACTION"
 LLM_PERCEPTION_SOCIAL_RELATION_EXTRACTION = "LLM_PERCEPTION_SOCIAL_RELATION_EXTRACTION"
 
 # 大模型推理层
-LLM_INFERENCE = "LLM_INFERENCE"
-LLM_EXPLICIT_MOTIVATION_EXTRACTION = "LLM_EXPLICIT_MOTIVATION_EXTRACTION"
-LLM_RATIONAL_ADVICE = "LLM_RATIONAL_ADVICE"
+LLM_STRATEGY_ANCHOR = "LLM_STRATEGY_ANCHOR"
+LLM_CONTRADICTION_MAP = "LLM_CONTRADICTION_MAP"
+LLM_MANIPULATION_DECODE = "LLM_MANIPULATION_DECODE"
+LLM_MINIMAL_VIABLE_ADVICE = "LLM_MINIMAL_VIABLE_ADVICE"
 
-# 感知层常量集合，用于过滤非法参与者数据
-PERCEPTION_LAYERS = {
-    LLM_PERCEPTION_TEMPORAL_EXTRACTION,
-    LLM_PERCEPTION_SPATIAL_EXTRACTION,
-    LLM_PERCEPTION_VISUAL_EXTRACTION,
-    LLM_PERCEPTION_AUDITORY_EXTRACTION,
-    LLM_PERCEPTION_OLFACTORY_EXTRACTION,
-    LLM_PERCEPTION_TACTILE_EXTRACTION,
-    LLM_PERCEPTION_GUSTATORY_EXTRACTION,
-    LLM_PERCEPTION_INTEROCEPTIVE_EXTRACTION,
-    LLM_PERCEPTION_COGNITIVE_EXTRACTION,
-    LLM_PERCEPTION_BODILY_EXTRACTION,
-    LLM_PERCEPTION_EMOTIONAL_EXTRACTION,
-    LLM_PERCEPTION_SOCIAL_RELATION_EXTRACTION,
-}
-# 定义各阶段并行任务允许使用的上下文 marker
-ALLOWED_PARALLEL_MARKERS = {
+# 定义各阶段并行感知任务允许使用的上下文 marker
+ALLOWED_PARALLEL_PERCEPTION_MARKERS = {
     0: {"### USER_INPUT BEGIN"},
     1: {"### USER_INPUT BEGIN"},
     2: {"### USER_INPUT BEGIN"},
@@ -67,30 +78,30 @@ ALLOWED_PARALLEL_MARKERS = {
     11: {"### USER_INPUT BEGIN"}
 }
 
-# 定义各阶段串行任务允许使用的上下文 marker
-ALLOWED_SERIAL_MARKERS = {
-    0: {  # 第一步：合理推演
-        "### PARTICIPANTS_VALID_INFORMATION BEGIN",
+# 定义各阶段并行高阶任务允许使用的上下文 marker
+ALLOWED_PARALLEL_HIGH_ORDER_MARKERS = {
+    0: {  # 策略锚定
         "### PERCEPTUAL_CONTEXT_BATCH BEGIN",
         "### LEGITIMATE_PARTICIPANTS BEGIN"
     },
-    1: {  # 第二步：显性动机
-        "### PARTICIPANTS_VALID_INFORMATION BEGIN",
+    1: {  # 矛盾暴露
         "### PERCEPTUAL_CONTEXT_BATCH BEGIN",
-        "### INFERENCE_CONTEXT BEGIN",
         "### LEGITIMATE_PARTICIPANTS BEGIN"
     },
-    2: {  # 第三步：合理建议
-        "### INFERENCE_CONTEXT BEGIN",
-        "### EXPLICIT_MOTIVATION_CONTEXT BEGIN",
+    2: {  # 操控机制解码
+        "### PERCEPTUAL_CONTEXT_BATCH BEGIN",
         "### LEGITIMATE_PARTICIPANTS BEGIN"
     }
 }
 
-# 语义模块常量（L1 判定依据）
-SEMANTIC_MODULES_L1 = {
-    "auditory", "visual", "olfactory", "cognitive", "interoceptive", "bodily",
-    "social_relation", "temporal", "spatial", "tactile", "gustatory", "emotional"
+# 定义各阶段串行任务允许使用的上下文 marker
+ALLOWED_SERIAL_SUGGESTION_MARKERS = {
+    0: {  # 最小可行性建议
+        "### STRATEGY_ANCHOR_CONTEXT BEGIN",
+        "### CONTRADICTION_MAP_CONTEXT BEGIN",
+        "### MANIPULATION_DECODE_CONTEXT BEGIN",
+        "### LEGITIMATE_PARTICIPANTS BEGIN"
+    },
 }
 
 # 默认 API URL 映射
@@ -105,6 +116,7 @@ SEMANTIC_NULL_STRINGS = frozenset([
     "none", "unknown", "unspecified", "n/a", "na", "—", "-", "…", "..."
 ])
 
+# 合法代词，暂时不再使用
 CHINESE_PRONOUNS = {
     # 第一人称单数
     "我", "吾", "余", "予", "俺", "咱", "本人", "自己", "自身", "个人",
@@ -198,30 +210,25 @@ REQUIRED_FIELDS_BY_CATEGORY: Dict[str, Dict[str, List[ValidationRule]]] = {
             # === 静态社会属性 ===
             ("participants.*.social_role", False, IS_STR, "social_role（非职业的社会身份标签）："),
             ("participants.*.occupation", False, IS_STR, "occupation（职业身份）："),
-            ("participants.*.family_status ", False, IS_STR, "family_status （家庭状态标签）："),
+            ("participants.*.family_status", False, IS_STR, "family_status （家庭状态标签）："),
             ("participants.*.education_level", False, IS_STR, "education_level（教育程度）："),
-            ("participants.*.cultural_identity", False, IS_LIST, "cultural_identity（文化/民族/地域身份标签）："),
+            ("participants.*.cultural_identity", False, IS_STR, "cultural_identity（文化/民族身份标签）："),
             ("participants.*.primary_language", False, IS_STR, "primary_language（主要使用语言）："),
-            ("participants.*.institutional_affiliation", False, IS_LIST, "institutional_affiliation（所属机构标签）："),
+            ("participants.*.institutional_affiliation", False, IS_STR, "institutional_affiliation（所属机构标签）："),
 
             # === 生物与生理属性 ===
             ("participants.*.age_range", False, IS_STR, "age_range（年龄范围）："),
             ("participants.*.gender", False, IS_STR, "gender（性别或相关表述）："),
             ("participants.*.ethnicity_or_origin", False, IS_STR, "ethnicity_or_origin（族群/国籍/地域出身）："),
             ("participants.*.physical_traits", False, IS_LIST, "physical_traits（固有生理特征）："),
-            ("participants.*.current_physical_state", False, IS_STR, "current_physical_state（当前身体状态）："),
-            ("participants.*.visible_injury_or_wound", False, IS_LIST, "visible_injury_or_wound（可见伤痕或包扎）："),
+            ("participants.*.current_action_state", False, IS_STR, "current_action_state（当前状态）："),
+            ("participants.*.visible_injury_or_wound", False, IS_STR, "visible_injury_or_wound（可见伤痕或包扎）："),
 
             # === 感官与外显特征 ===
             ("participants.*.appearance", False, IS_LIST, "appearance（外貌与衣着特征）："),
             ("participants.*.voice_quality", False, IS_STR, "voice_quality（嗓音特质）："),
-            ("participants.*.inherent_odor", False, IS_LIST, "inherent_odor（体味或气息）："),
-            ("participants.*.carried_objects", False, IS_LIST, "carried_objects（持有物品）："),
-            ("participants.*.worn_technology", False, IS_LIST, "worn_technology（佩戴的电子设备）："),
-
-            # === 心理与行为属性 ===
-            ("participants.*.personality_traits", False, IS_LIST, "personality_traits（性格特质词汇）："),
-            ("participants.*.behavioral_tendencies", False, IS_LIST, "behavioral_tendencies（行为习惯表述）："),
+            ("participants.*.inherent_odor", False, IS_STR, "inherent_odor（体味或气息）："),
+            ("participants.*.possessions", False, IS_LIST, "possessions（物理持有或佩戴物品）："),
             ("participants.*.speech_pattern", False, IS_STR, "speech_pattern（说话方式）："),
 
             # === 交互与场景角色 ===
@@ -229,9 +236,9 @@ REQUIRED_FIELDS_BY_CATEGORY: Dict[str, Dict[str, List[ValidationRule]]] = {
         ],
 
         # ────────────────────────────────────────
-        # 动态筛选存在哪些感知维度信息
+        # 2. 动态筛选存在哪些感知维度信息
         # ────────────────────────────────────────
-        LLM_DIMENSION_GATE:[
+        LLM_DIMENSION_GATE: [
             ("pre_screening", True, IS_DICT, "pre_screening（预筛选）："),
             ("pre_screening.temporal", True, IS_BOOL, "temporal（时间感知）："),
             ("pre_screening.spatial", True, IS_BOOL, "spatial（空间感知）："),
@@ -248,468 +255,344 @@ REQUIRED_FIELDS_BY_CATEGORY: Dict[str, Dict[str, List[ValidationRule]]] = {
         ],
 
         # ────────────────────────────────────────
-        # 提前判断是否值得开启高阶三步链
+        # 3. 提前判断是否值得开启高阶四步链
         # ────────────────────────────────────────
-        LLM_INFERENCE_ELIGIBILITY:[
+        LLM_INFERENCE_ELIGIBILITY: [
             ("eligibility", True, IS_DICT, "eligibility（高阶步骤执行资格）："),
             ("eligibility.eligible", True, IS_BOOL, "eligible（符合条件）："),
         ],
 
         # ────────────────────────────────────────
-        # 2. 时间感知
+        # 4. 时间感知
         # ────────────────────────────────────────
         LLM_PERCEPTION_TEMPORAL_EXTRACTION: [
             ("temporal", False, IS_DICT, "temporal（时间信息根对象）："),
             ("temporal.events", False, IS_LIST, "events（时间事件列表）："),
-            ("temporal.evidence", False, IS_LIST, "evidence（全局时间证据片段）："),
             ("temporal.summary", False, IS_STR, "summary（时间事件摘要）："),
 
             ("temporal.events.*.experiencer", False, IS_STR, "experiencer（事件陈述主体）："),
             ("temporal.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
             ("temporal.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化时间语义标识）："),
-            ("temporal.events.*.exact_literals", False, IS_LIST, "exact_literals（精确时间字面量）："),
-            ("temporal.events.*.relative_expressions", False, IS_LIST, "relative_expressions（相对时间表达）："),
-            ("temporal.events.*.negated_time", False, IS_LIST, "negated_time（否定句中的时间成分）："),
-            ("temporal.events.*.time_ranges", False, IS_LIST, "time_ranges（时间区间表达）："),
-            ("temporal.events.*.durations", False, IS_LIST, "durations（持续时间表达）："),
-            ("temporal.events.*.frequencies", False, IS_LIST, "frequencies（频率或周期表达）："),
-            ("temporal.events.*.event_markers", False, IS_LIST, "event_markers（共现动词或名词）："),
-            ("temporal.events.*.tense_aspect", False, IS_STR, "tense_aspect（时体标记）："),
-            ("temporal.events.*.seasonal_or_cultural_time", False, IS_LIST, "seasonal_or_cultural_time（制度性文化时间标识）："),
-            ("temporal.events.*.temporal_anchor", False, IS_STR, "temporal_anchor（时间参考锚点）："),
-            ("temporal.events.*.uncertainty_modifiers", False, IS_LIST, "uncertainty_modifiers（时间不确定性修饰语）：")
+            ("temporal.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
+
+            ("temporal.events.*.temporal_mentions", False, IS_LIST, "temporal_mentions（显示时间成分）："),
+            ("temporal.events.*.temporal_mentions.*.phrase", False, IS_STR, "phrase（原文时间短语）："),
+            ("temporal.events.*.temporal_mentions.*.type", False, IS_STR, "type（时间成分类型）："),
         ],
 
         # ────────────────────────────────────────
-        # 3. 空间感知
+        # 5. 空间感知
         # ────────────────────────────────────────
         LLM_PERCEPTION_SPATIAL_EXTRACTION: [
             ("spatial", False, IS_DICT, "spatial（空间信息根对象）："),
             ("spatial.events", False, IS_LIST, "events（空间事件列表）："),
-            ("spatial.evidence", False, IS_LIST, "evidence（全局空间证据片段）："),
             ("spatial.summary", False, IS_STR, "summary（空间事件摘要）："),
 
             ("spatial.events.*.experiencer", False, IS_STR, "experiencer（空间陈述主体）："),
             ("spatial.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
             ("spatial.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化空间语义标识）："),
-            ("spatial.events.*.places", False, IS_LIST, "places（具体地点名称）："),
-            ("spatial.events.*.layout_descriptions", False, IS_LIST, "layout_descriptions（空间布局描述）："),
-            ("spatial.events.*.negated_places", False, IS_LIST, "negated_places（否定句中的地点成分）："),
-            ("spatial.events.*.spatial_event_markers", False, IS_LIST, "spatial_event_markers（共现动词或名词）："),
-            ("spatial.events.*.cultural_or_institutional_spaces", False, IS_LIST,
-             "cultural_or_institutional_spaces（制度性或文化性空间）："),
-            ("spatial.events.*.orientation_descriptions", False, IS_LIST, "orientation_descriptions（方向或朝向描述）："),
+            ("spatial.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
 
-            ("spatial.events.*.proximity_relations", False, IS_LIST, "proximity_relations（显式空间关系）："),
-            ("spatial.events.*.proximity_relations.*.actor", False, IS_STR, "actor（关系参照主体）："),
-            ("spatial.events.*.proximity_relations.*.target", False, IS_STR, "target（关系参照对象）："),
-            ("spatial.events.*.proximity_relations.*.distance_cm", False, IS_INT, "distance_cm（物理距离，单位：厘米）："),
-            ("spatial.events.*.proximity_relations.*.modifiers", False, IS_LIST, "modifiers（修饰性空间成分）："),
-            ("spatial.events.*.proximity_relations.*.relation_type", False, IS_STR, "relation_type（原文空间关系短语）：")
+            ("spatial.events.*.spatial_mentions", False, IS_LIST, "spatial_mentions（显式空间成分）："),
+            ("spatial.events.*.spatial_mentions.*.phrase", False, IS_STR, "phrase（原文空间短语）："),
+            ("spatial.events.*.spatial_mentions.*.type", False, IS_STR, "type（空间成分类型）："),
         ],
 
         # ────────────────────────────────────────
-        # 4. 视觉感知
+        # 6. 视觉感知
         # ────────────────────────────────────────
         LLM_PERCEPTION_VISUAL_EXTRACTION: [
             ("visual", False, IS_DICT, "visual（视觉信息根对象）："),
             ("visual.events", False, IS_LIST, "events（视觉事件列表）："),
-            ("visual.evidence", False, IS_LIST, "evidence（全局视觉证据片段）："),
             ("visual.summary", False, IS_STR, "summary（视觉事件摘要）："),
 
             ("visual.events.*.experiencer", False, IS_STR, "experiencer（视觉陈述主体）："),
             ("visual.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
             ("visual.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化视觉语义标识）："),
-            ("visual.events.*.observed_entity", False, IS_STR, "observed_entity（被观察对象）："),
-            ("visual.events.*.visual_objects", False, IS_LIST, "visual_objects（可见物体）："),
-            ("visual.events.*.visual_attributes", False, IS_LIST, "visual_attributes（视觉属性）："),
-            ("visual.events.*.visual_actions", False, IS_LIST, "visual_actions（可见的动作或姿态）："),
-            ("visual.events.*.gaze_target", False, IS_STR, "gaze_target（注视目标）："),
-            ("visual.events.*.eye_contact", False, IS_LIST, "eye_contact（眼神交互描述）："),
-            ("visual.events.*.facial_cues", False, IS_LIST, "facial_cues（面部表情描述）："),
-            ("visual.events.*.salience", False, IS_FLOAT, "salience（观察确定性修饰词）："),
-            ("visual.events.*.negated_observations", False, IS_LIST, "negated_observations（否定句中的观察对象）："),
-            ("visual.events.*.visual_medium", False, IS_LIST, "visual_medium（视觉媒介）："),
-            ("visual.events.*.occlusion_or_obstruction", False, IS_LIST, "occlusion_or_obstruction（遮挡物）："),
-            ("visual.events.*.lighting_conditions", False, IS_LIST, "lighting_conditions（光照条件）："),
+            ("visual.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
+
+            ("visual.events.*.visual_mentions", False, IS_LIST, "visual_mentions（显式视觉成分）："),
+            ("visual.events.*.visual_mentions.*.phrase", False, IS_STR, "phrase（原文视觉短语）："),
+            ("visual.events.*.visual_mentions.*.type", False, IS_STR, "type（视觉成分类型）：")
         ],
 
         # ────────────────────────────────────────
-        # 5. 听觉感知
+        # 7. 听觉感知
         # ────────────────────────────────────────
         LLM_PERCEPTION_AUDITORY_EXTRACTION: [
             ("auditory", False, IS_DICT, "auditory（听觉信息根对象）："),
             ("auditory.events", False, IS_LIST, "events（听觉事件列表）："),
-            ("auditory.evidence", False, IS_LIST, "evidence（全局听觉证据片段）："),
             ("auditory.summary", False, IS_STR, "summary（听觉事件摘要）："),
 
             ("auditory.events.*.experiencer", False, IS_STR, "experiencer（听觉陈述主体）："),
             ("auditory.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
             ("auditory.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化听觉语义标识）："),
-            ("auditory.events.*.sound_source", False, IS_STR, "sound_source（声源）："),
-            ("auditory.events.*.auditory_content", False, IS_LIST, "auditory_content（言语内容）："),
-            ("auditory.events.*.is_primary_focus", False, IS_BOOL, "is_primary_focus（是否被强调为唯一/主要听觉内容）："),
-            ("auditory.events.*.prosody_cues", False, IS_LIST, "prosody_cues（语调与发声特征）："),
-            ("auditory.events.*.pause_description", False, IS_STR, "pause_description（言语停顿描述）："),
-            ("auditory.events.*.intensity", False, IS_FLOAT, "intensity（声音强度修饰词）："),
-            ("auditory.events.*.negated_observations", False, IS_LIST, "negated_observations（否定句中的听觉对象）："),
-            ("auditory.events.*.auditory_medium", False, IS_LIST, "auditory_medium（听觉媒介）："),
-            ("auditory.events.*.background_sounds", False, IS_LIST, "background_sounds（背景声音）："),
-            ("auditory.events.*.nonverbal_sounds", False, IS_LIST, "nonverbal_sounds（非语言声音）：")
+            ("auditory.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
+
+            ("auditory.events.*.auditory_mentions", False, IS_LIST, "auditory_mentions（显式听觉成分）："),
+            ("auditory.events.*.auditory_mentions.*.phrase", False, IS_STR, "phrase（原文听觉短语）："),
+            ("auditory.events.*.auditory_mentions.*.type", False, IS_STR, "type（听觉成分类型）：")
         ],
 
         # ────────────────────────────────────────
-        # 6. 嗅觉感知
+        # 8. 嗅觉感知
         # ────────────────────────────────────────
         LLM_PERCEPTION_OLFACTORY_EXTRACTION: [
             ("olfactory", False, IS_DICT, "olfactory（嗅觉信息根对象）："),
             ("olfactory.events", False, IS_LIST, "events（嗅觉事件列表）："),
-            ("olfactory.evidence", False, IS_LIST, "evidence（全局嗅觉证据片段）："),
             ("olfactory.summary", False, IS_STR, "summary（嗅觉事件摘要）："),
 
             ("olfactory.events.*.experiencer", False, IS_STR, "experiencer（嗅觉陈述主体）："),
             ("olfactory.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
             ("olfactory.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化嗅觉语义标识）："),
-            ("olfactory.events.*.odor_source", False, IS_STR, "odor_source（气味来源）："),
-            ("olfactory.events.*.odor_descriptors", False, IS_LIST, "odor_descriptors（气味描述词）："),
-            ("olfactory.events.*.intensity", False, IS_FLOAT, "intensity（气味强度程度）："),
-            ("olfactory.events.*.negated_observations", False, IS_LIST, "negated_observations（否定句中的气味对象）："),
-            ("olfactory.events.*.odor_valence", False, IS_LIST, "odor_valence（气味评价词）："),
-            ("olfactory.events.*.odor_source_category", False, IS_LIST, "odor_source_category（来源类别词）："),
-            ("olfactory.events.*.olfactory_actions", False, IS_LIST, "olfactory_actions（嗅觉相关动作）：")
+            ("olfactory.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
+
+            ("olfactory.events.*.olfactory_mentions", False, IS_LIST, "olfactory_mentions（显式嗅觉成分）："),
+            ("olfactory.events.*.olfactory_mentions.*.phrase", False, IS_STR, "phrase（原文嗅觉短语）："),
+            ("olfactory.events.*.olfactory_mentions.*.type", False, IS_STR, "type（嗅觉成分类型）："),
         ],
 
         # ────────────────────────────────────────
-        # 7. 触觉感知
+        # 9. 触觉感知
         # ────────────────────────────────────────
         LLM_PERCEPTION_TACTILE_EXTRACTION: [
             ("tactile", False, IS_DICT, "tactile（触觉信息根对象）："),
             ("tactile.events", False, IS_LIST, "events（触觉事件列表）："),
-            ("tactile.evidence", False, IS_LIST, "evidence（全局触觉证据片段）："),
             ("tactile.summary", False, IS_STR, "summary（触觉事件摘要）："),
 
             ("tactile.events.*.experiencer", False, IS_STR, "experiencer（触觉陈述主体）："),
             ("tactile.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
             ("tactile.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化触觉语义标识）："),
-            ("tactile.events.*.contact_target", False, IS_STR, "contact_target（接触对象或表面）："),
-            ("tactile.events.*.tactile_descriptors", False, IS_LIST, "tactile_descriptors（触觉感受或动作描述）："),
-            ("tactile.events.*.intensity", False, IS_FLOAT, "intensity（触觉强度程度）："),
-            ("tactile.events.*.contact_initiator", False, IS_STR, "contact_initiator（接触发起方）："),
-            ("tactile.events.*.body_part", False, IS_LIST, "body_part（触觉发生的身体部位）："),
-            ("tactile.events.*.texture", False, IS_LIST, "texture（质地类描述）："),
-            ("tactile.events.*.temperature", False, IS_LIST, "temperature（温度类描述）："),
-            ("tactile.events.*.pressure", False, IS_LIST, "pressure（压力类描述）："),
-            ("tactile.events.*.pain", False, IS_LIST, "pain（疼痛类描述）："),
-            ("tactile.events.*.motion", False, IS_LIST, "motion（动态触觉描述）："),
-            ("tactile.events.*.vibration", False, IS_LIST, "vibration（震动类描述）："),
-            ("tactile.events.*.moisture", False, IS_LIST, "moisture（湿度/干湿类描述）："),
-            ("tactile.events.*.contact", False, IS_LIST, "contact（接触存在性或方式描述）："),
-            ("tactile.events.*.negated_observations", False, IS_LIST, "negated_observations（被否定的触觉内容）："),
-            ("tactile.events.*.tactile_intent_or_valence", False, IS_LIST, "tactile_intent_or_valence（触觉情感或意图词）：")
+            ("tactile.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
+
+            ("tactile.events.*.tactile_mentions", False, IS_LIST, "tactile_mentions（显式触觉成分）："),
+            ("tactile.events.*.tactile_mentions.*.phrase", False, IS_STR, "phrase（原文触觉短语）："),
+            ("tactile.events.*.tactile_mentions.*.type", False, IS_STR, "type（触觉成分类型）："),
         ],
 
         # ────────────────────────────────────────
-        # 8. 味觉感知
+        # 10. 味觉感知
         # ────────────────────────────────────────
         LLM_PERCEPTION_GUSTATORY_EXTRACTION: [
             ("gustatory", False, IS_DICT, "gustatory（味觉信息根对象）："),
             ("gustatory.events", False, IS_LIST, "events（味觉事件列表）："),
-            ("gustatory.evidence", False, IS_LIST, "evidence（全局味觉证据片段）："),
             ("gustatory.summary", False, IS_STR, "summary（味觉事件摘要）："),
 
             ("gustatory.events.*.experiencer", False, IS_STR, "experiencer（味觉陈述主体）："),
             ("gustatory.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
             ("gustatory.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化味觉语义标识）："),
-            ("gustatory.events.*.intensity", False, IS_FLOAT, "intensity（味觉强度程度）："),
-            ("gustatory.events.*.taste_source", False, IS_STR, "taste_source（味道来源或物质）："),
-            ("gustatory.events.*.taste_descriptors", False, IS_LIST, "taste_descriptors（味觉感受或描述短语）："),
-            ("gustatory.events.*.contact_initiator", False, IS_STR, "contact_initiator（摄入发起方）："),
-            ("gustatory.events.*.body_part", False, IS_STR, "body_part（味觉发生的身体部位）："),
-            ("gustatory.events.*.intent_or_valence", False, IS_LIST, "intent_or_valence（味觉情感或意图词）："),
-            ("gustatory.events.*.negated_observations", False, IS_LIST, "negated_observations（被否定的味觉内容）："),
-            ("gustatory.events.*.sweet", False, IS_LIST, "sweet（甜味类描述）："),
-            ("gustatory.events.*.salty", False, IS_LIST, "salty（咸味类描述）："),
-            ("gustatory.events.*.sour", False, IS_LIST, "sour（酸味类描述）："),
-            ("gustatory.events.*.bitter", False, IS_LIST, "bitter（苦味类描述）："),
-            ("gustatory.events.*.umami", False, IS_LIST, "umami（鲜味类描述）："),
-            ("gustatory.events.*.spicy", False, IS_LIST, "spicy（辣味/刺激类描述）："),
-            ("gustatory.events.*.astringent", False, IS_LIST, "astringent（涩味类描述）："),
-            ("gustatory.events.*.fatty", False, IS_LIST, "fatty（油脂感描述）："),
-            ("gustatory.events.*.metallic", False, IS_LIST, "metallic（金属味描述）："),
-            ("gustatory.events.*.chemical", False, IS_LIST, "chemical（化学异味）："),
-            ("gustatory.events.*.thermal", False, IS_LIST, "thermal（冷热感描述）：")
+            ("gustatory.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
+
+            ("gustatory.events.*.gustatory_mentions", False, IS_LIST, "gustatory_mentions（显式味觉成分）："),
+            ("gustatory.events.*.gustatory_mentions.*.phrase", False, IS_STR, "phrase（原文味觉短语）："),
+            ("gustatory.events.*.gustatory_mentions.*.type", False, IS_STR, "type（味觉成分类型）："),
         ],
 
         # ────────────────────────────────────────
-        # 9. 内感受
+        # 11. 内感受
         # ────────────────────────────────────────
         LLM_PERCEPTION_INTEROCEPTIVE_EXTRACTION: [
             ("interoceptive", False, IS_DICT, "interoceptive（内感受信息根对象）："),
             ("interoceptive.events", False, IS_LIST, "events（内感受事件列表）："),
-            ("interoceptive.evidence", False, IS_LIST, "evidence（全局内感受证据片段）："),
             ("interoceptive.summary", False, IS_STR, "summary（内感受事件摘要）："),
 
             ("interoceptive.events.*.experiencer", False, IS_STR, "experiencer（内感受陈述主体）："),
-            ("interoceptive.events.*.intensity", False, IS_FLOAT, "intensity（内感受强度程度）："),
             ("interoceptive.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
             ("interoceptive.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化内感受语义标识）："),
-            ("interoceptive.events.*.contact_initiator", False, IS_STR, "contact_initiator（内感受触发者）："),
-            ("interoceptive.events.*.body_part", False, IS_STR, "body_part（内感受发生的身体部位）："),
-            ("interoceptive.events.*.intent_or_valence", False, IS_LIST,
-             "tactile_intent_or_valence（内感受的情感或意图词）："),
-            ("interoceptive.events.*.negated_observations", False, IS_LIST, "negated_observations（被否定的内感受内容）："),
-            ("interoceptive.events.*.cardiac", False, IS_LIST, "cardiac（心悸/心跳类描述）："),
-            ("interoceptive.events.*.respiratory", False, IS_LIST, "respiratory（呼吸类描述）："),
-            ("interoceptive.events.*.gastrointestinal", False, IS_LIST, "gastrointestinal（胃肠类描述）："),
-            ("interoceptive.events.*.thermal", False, IS_LIST, "thermal（体温/冷热感）："),
-            ("interoceptive.events.*.muscular", False, IS_LIST, "muscular（肌肉紧张/酸痛）："),
-            ("interoceptive.events.*.visceral_pressure", False, IS_LIST, "visceral_pressure（压迫感）："),
-            ("interoceptive.events.*.dizziness", False, IS_LIST, "dizziness（眩晕/失衡感）："),
-            ("interoceptive.events.*.nausea", False, IS_LIST, "nausea（恶心/反胃感）："),
-            ("interoceptive.events.*.fatigue", False, IS_LIST, "fatigue（疲惫/虚脱感）："),
-            ("interoceptive.events.*.thirst_hunger", False, IS_LIST, "thirst_hunger（饥渴感）：")
+            ("interoceptive.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
+
+            ("interoceptive.events.*.interoceptive_mentions", False, IS_LIST, "interoceptive_mentions（显式内感受成分）："),
+            ("interoceptive.events.*.interoceptive_mentions.*.phrase", False, IS_STR, "phrase（原文内感受短语）："),
+            ("interoceptive.events.*.interoceptive_mentions.*.type", False, IS_STR, "type（内感受成分类型）："),
         ],
 
         # ────────────────────────────────────────
-        # 10. 认知过程
+        # 12. 认知过程
         # ────────────────────────────────────────
         LLM_PERCEPTION_COGNITIVE_EXTRACTION: [
             ("cognitive", False, IS_DICT, "cognitive（认知过程信息根对象）："),
             ("cognitive.events", False, IS_LIST, "events（认知事件列表）："),
-            ("cognitive.evidence", False, IS_LIST, "evidence（全局认知过程证据片段）："),
             ("cognitive.summary", False, IS_STR, "summary（认知过程事件摘要）："),
 
             ("cognitive.events.*.experiencer", False, IS_STR, "experiencer（认知过程陈述主体）："),
-            ("cognitive.events.*.intensity", False, IS_FLOAT, "intensity（认知负荷或确信强度）："),
             ("cognitive.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
             ("cognitive.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化认知过程语义标识）："),
-            ("cognitive.events.*.cognitive_agent", False, IS_STR, "cognitive_agent（思维发起者）："),
-            ("cognitive.events.*.target_entity", False, IS_STR, "target_entity（思维指向的对象或主题）："),
-            ("cognitive.events.*.cognitive_valence", False, IS_LIST, "cognitive_valence（认知情感倾向词）："),
-            ("cognitive.events.*.negated_cognitions", False, IS_LIST, "negated_cognitions（被否定的认知过程内容）："),
-            ("cognitive.events.*.belief", False, IS_LIST, "belief（信念陈述）："),
-            ("cognitive.events.*.intention", False, IS_LIST, "intention（意图表达）："),
-            ("cognitive.events.*.inference", False, IS_LIST, "inference（推理过程）："),
-            ("cognitive.events.*.memory_recall", False, IS_LIST, "memory_recall（记忆提取）："),
-            ("cognitive.events.*.doubt_or_uncertainty", False, IS_LIST, "doubt_or_uncertainty（怀疑/不确定）："),
-            ("cognitive.events.*.evaluation", False, IS_LIST, "evaluation（价值判断）："),
-            ("cognitive.events.*.problem_solving", False, IS_LIST, "problem_solving（问题解决思路）："),
-            ("cognitive.events.*.metacognition", False, IS_LIST, "metacognition（元认知）：")
+            ("cognitive.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
+
+            ("cognitive.events.*.cognitive_mentions", False, IS_LIST, "cognitive_mentions（显式认知过程成分）："),
+            ("cognitive.events.*.cognitive_mentions.*.phrase", False, IS_STR, "phrase（原文认知过程短语）："),
+            ("cognitive.events.*.cognitive_mentions.*.type", False, IS_STR, "type（认知过程成分类型）："),
         ],
 
         # ────────────────────────────────────────
-        # 11. 躯体化表现
+        # 13. 躯体化表现
         # ────────────────────────────────────────
         LLM_PERCEPTION_BODILY_EXTRACTION: [
             ("bodily", False, IS_DICT, "bodily（躯体化表现信息根对象）："),
             ("bodily.events", False, IS_LIST, "events（躯体化事件列表）："),
-            ("bodily.evidence", False, IS_LIST, "evidence（全局躯体化表现证据片段）："),
             ("bodily.summary", False, IS_STR, "summary（躯体化表现事件摘要）："),
 
             ("bodily.events.*.experiencer", False, IS_STR, "experiencer（躯体化行为执行主体）："),
-            ("bodily.events.*.intensity", False, IS_FLOAT, "intensity（躯体化表现强度）："),
             ("bodily.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
             ("bodily.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化躯体化表现语义标识）："),
-            ("bodily.events.*.observer", False, IS_STR, "observer（行为观察者）："),
-            ("bodily.events.*.movement_direction", False, IS_STR, "movement_direction（运动方向/趋势）："),
-            ("bodily.events.*.posture", False, IS_STR, "posture（静态身体姿态）："),
-            ("bodily.events.*.facial_expression", False, IS_LIST, "facial_expression（面部表情显式描述）："),
-            ("bodily.events.*.vocal_behavior", False, IS_LIST, "vocal_behavior（声音物理表现）："),
-            ("bodily.events.*.autonomic_signs", False, IS_LIST, "autonomic_signs（自主神经外显征象）："),
-            ("bodily.events.*.motor_behavior", False, IS_LIST, "motor_behavior（随意运动行为）："),
-            ("bodily.events.*.freeze_or_faint", False, IS_LIST, "freeze_or_faint（冻结或晕厥类反应）：")
+            ("bodily.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
+
+            ("bodily.events.*.bodily_mentions", False, IS_LIST, "bodily_mentions（显式躯体化表现成分）："),
+            ("bodily.events.*.bodily_mentions.*.phrase", False, IS_STR, "phrase（原文躯体化表现短语）："),
+            ("bodily.events.*.bodily_mentions.*.type", False, IS_STR, "type（躯体化表现成分类型）："),
         ],
 
         # ────────────────────────────────────────
-        # 12. 情感状态
+        # 14. 情感状态
         # ────────────────────────────────────────
         LLM_PERCEPTION_EMOTIONAL_EXTRACTION: [
             ("emotional", False, IS_DICT, "emotional（情感状态信息根对象）："),
             ("emotional.events", False, IS_LIST, "events（情感事件列表）："),
-            ("emotional.evidence", False, IS_LIST, "evidence（全局情感状态证据片段）："),
             ("emotional.summary", False, IS_STR, "summary（情感状态事件摘要）："),
 
             ("emotional.events.*.experiencer", False, IS_STR, "experiencer（情绪经历主体）："),
-            ("emotional.events.*.intensity", False, IS_FLOAT, "intensity（情绪）："),
             ("emotional.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
             ("emotional.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化情感状态语义标识）："),
-            ("emotional.events.*.expression_mode", False, IS_STR, "expression_mode（情绪表达模式）："),
-            ("emotional.events.*.emotion_labels", False, IS_LIST, "emotion_labels（情绪标签）："),
-            ("emotional.events.*.valence", False, IS_FLOAT, "valence（情绪效价）："),
-            ("emotional.events.*.arousal", False, IS_FLOAT, "arousal（情绪唤醒度）：")
+            ("emotional.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
+
+            ("emotional.events.*.emotional_mentions", False, IS_LIST, "emotional_mentions（显式情感状态成分）："),
+            ("emotional.events.*.emotional_mentions.*.phrase", False, IS_STR, "phrase（原文情感状态短语）："),
+            ("emotional.events.*.emotional_mentions.*.type", False, IS_STR, "type（情感状态成分类型）："),
         ],
 
         # ────────────────────────────────────────
-        # 13. 社会关系
+        # 15. 社会关系
         # ────────────────────────────────────────
         LLM_PERCEPTION_SOCIAL_RELATION_EXTRACTION: [
             ("social_relation", False, IS_DICT, "social_relation（社会关系信息根对象）："),
             ("social_relation.events", False, IS_LIST, "events（社会关系事件列表）："),
-            ("social_relation.evidence", False, IS_LIST, "evidence（全局社会关系证据片段）："),
             ("social_relation.summary", False, IS_STR, "summary（社会关系事件摘要）："),
 
             ("social_relation.events.*.experiencer", False, IS_STR, "experiencer（社会关系经历主体）："),
             ("social_relation.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化社会关系语义标识）："),
-            ("social_relation.events.*.relation_type", False, IS_STR, "relation_type（关系类型描述）："),
-            ("social_relation.events.*.participants", False, IS_LIST, "participants（涉及的所有参与者）："),
-            ("social_relation.events.*.source", False, IS_STR, "source（关系发起方）："),
-            ("social_relation.events.*.target", False, IS_STR, "target（关系接收方）："),
-            ("social_relation.events.*.confidence", False, IS_FLOAT, "confidence（关系置信度）："),
-            ("social_relation.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）：")
+            ("social_relation.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
+            ("social_relation.events.*.event_markers", False, IS_LIST, "event_markers（核心词汇）："),
+
+            (
+                "social_relation.events.*.social_relation_mentions", False, IS_LIST,
+                "social_relation_mentions（显式社会关系成分）："),
+            ("social_relation.events.*.social_relation_mentions.*.phrase", False, IS_STR, "phrase（原文社会关系短语）："),
+            ("social_relation.events.*.social_relation_mentions.*.type", False, IS_STR, "type（社会关系成分类型）："),
         ],
 
         # ────────────────────────────────────────
-        # 14. 合理推演
+        # 16. 策略锚定
         # ────────────────────────────────────────
-        LLM_INFERENCE: [
-            ("inference", False, IS_DICT, "inference（合理推演信息根对象）："),
-            ("inference.events", False, IS_LIST, "events（合理推理事件列表）："),
-            ("inference.evidence", False, IS_LIST, "evidence（全局合理推演证据片段）："),
-            ("inference.summary", False, IS_STR, "summary（合理推演事件摘要）："),
+        LLM_STRATEGY_ANCHOR: [
+            ("strategy_anchor", False, IS_DICT, "strategy_anchor（策略锚定根对象）："),
+            ("strategy_anchor.events", False, IS_LIST, "events（策略锚定事件列表）："),
+            ("strategy_anchor.events.*.agent", False, IS_STR, "agent（行为主体）："),
+            ("strategy_anchor.events.*.target", False, IS_STR, "target（作用对象）："),
+            ("strategy_anchor.events.*.explicit_justification", False, IS_STR, "explicit_justification（表面理由或公开声明）："),
+            ("strategy_anchor.events.*.implicit_goal", False, IS_STR, "implicit_goal（可证伪的隐性目标）："),
+            ("strategy_anchor.events.*.behavior", False, IS_STR, "behavior（关键策略性行为）："),
+            ("strategy_anchor.events.*.social_script", False, IS_STR, "social_script（所利用的社会/道德脚本）："),
+            ("strategy_anchor.events.*.power_differential", False, IS_STR, "power_differential（权力/地位差异基础）："),
+            ("strategy_anchor.events.*.audience_role", False, IS_STR, "audience_role（第三方观众在策略中的功能）："),
+            ("strategy_anchor.events.*.anchor_perceptions", False, IS_LIST,
+             "anchor_perceptions（引用的底层感知事件 semantic_notation 列表）："),
+            ("strategy_anchor.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
+            ("strategy_anchor.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化策略锚定语义标识）："),
 
-            ("inference.events.*.experiencer", False, IS_STR, "experiencer（推理主体）："),
-            ("inference.events.*.inference_type", False, IS_STR, "inference_type（推理类型）："),
-            ("inference.events.*.anchor_points", False, IS_LIST, "anchor_points（引用的感知事件 semantic_notation 列表）："),
-            ("inference.events.*.inferred_proposition", False, IS_STR, "inferred_proposition（非确定性自然语言命题）："),
-            ("inference.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
-            ("inference.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化合理推演语义标识）："),
-            ("inference.events.*.polarity", False, IS_STR, "polarity（命题极性）："),
-            ("inference.events.*.context_modality", False, IS_STR, "context_modality（语境模态）："),
-            ("inference.events.*.scope", False, IS_STR, "scope（推理适用范围）：")
+            ("strategy_anchor.synthesis", False, IS_STR, "synthesis（策略层面的全局研判）："),
         ],
 
         # ────────────────────────────────────────
-        # 15. 显性动机
+        # 17. 矛盾暴露
         # ────────────────────────────────────────
-        LLM_EXPLICIT_MOTIVATION_EXTRACTION: [
-            ("explicit_motivation", False, IS_DICT, "explicit_motivation（显性动机信息根对象）："),
-            ("explicit_motivation.events", False, IS_LIST, "events（显性动机事件列表）："),
-            ("explicit_motivation.evidence", False, IS_LIST, "evidence（全局显性动机证据片段）："),
-            ("explicit_motivation.summary", False, IS_STR, "summary（显性动机事件摘要）："),
+        LLM_CONTRADICTION_MAP: [
+            ("contradiction_map", False, IS_DICT, "contradiction_map（矛盾暴露根对象）："),
+            ("contradiction_map.events", False, IS_LIST, "events（矛盾暴露事件列表）："),
+            ("contradiction_map.events.*.claimed_premise", False, IS_STR, "claimed_premise（声称的前提、动机或价值观）："),
+            ("contradiction_map.events.*.actual_behavior", False, IS_STR, "actual_behavior（实际采取的行为或安排）："),
+            ("contradiction_map.events.*.contradiction_type", False, IS_STR,
+             "contradiction_type（矛盾类型：means_end_mismatch / speech_action_split / context_violation / value_inconsistency）："),
+            ("contradiction_map.events.*.logical_conflict", False, IS_STR, "logical_conflict（逻辑冲突的精炼陈述）："),
+            ("contradiction_map.events.*.anchor_perceptions", False, IS_LIST,
+             "anchor_perceptions（引用的底层感知事件 semantic_notation 列表）："),
+            ("contradiction_map.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
+            ("contradiction_map.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化矛盾暴露语义标识）："),
 
-            ("explicit_motivation.events.*.experiencer", False, IS_STR, "experiencer（陈述主体）："),
-            ("explicit_motivation.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
-            ("explicit_motivation.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化显性动机语义标识）："),
-            ("explicit_motivation.events.*.core_driver", False, IS_LIST, "core_driver（根本驱动力）："),
-            ("explicit_motivation.events.*.care_expression", False, IS_LIST, "care_expression（关怀表达）："),
-            ("explicit_motivation.events.*.separation_anxiety", False, IS_LIST, "separation_anxiety（分离焦虑）："),
-            ("explicit_motivation.events.*.protective_intent", False, IS_LIST, "protective_intent（保护意图）："),
-
-            ("explicit_motivation.events.*.power_asymmetry", False, IS_DICT, "power_asymmetry（权力不对称结构）："),
-            ("explicit_motivation.events.*.power_asymmetry.control_axis", False, IS_LIST, "control_axis（控制方式）："),
-            ("explicit_motivation.events.*.power_asymmetry.threat_vector", False, IS_LIST, "threat_vector（威胁手段）："),
-            ("explicit_motivation.events.*.power_asymmetry.evidence", False, IS_LIST, "evidence（权力结构证据）："),
-
-            ("explicit_motivation.events.*.resource_control", False, IS_LIST, "resource_control（资源控制）："),
-            ("explicit_motivation.events.*.survival_imperative", False, IS_LIST, "survival_imperative（生存性服从）："),
-            ("explicit_motivation.events.*.social_enforcement_mechanism", False, IS_LIST,
-             "social_enforcement_mechanism（社会规范压力）："),
-
-            ("explicit_motivation.events.*.narrative_distortion", False, IS_DICT, "narrative_distortion（话术策略）："),
-            ("explicit_motivation.events.*.narrative_distortion.self_justification", False, IS_STR,
-             "self_justification（自我合理化）："),
-            ("explicit_motivation.events.*.narrative_distortion.blame_shift", False, IS_STR, "blame_shift（责任转嫁）："),
-            ("explicit_motivation.events.*.narrative_distortion.moral_licensing", False, IS_STR,
-             "moral_licensing（道德豁免）："),
-            ("explicit_motivation.events.*.narrative_distortion.evidence", False, IS_LIST, "evidence（话术证据）："),
-            ("explicit_motivation.events.*.internalized_oppression", False, IS_LIST, "internalized_oppression（内化压迫）："),
-            ("explicit_motivation.events.*.motivation_category", False, IS_STR, "motivation_category（动机类型）：")
+            ("contradiction_map.synthesis", False, IS_STR, "synthesis（矛盾层面的全局研判）："),
         ],
 
         # ────────────────────────────────────────
-        # 16. 合理建议
+        # 18. 操控机制解码
         # ────────────────────────────────────────
-        LLM_RATIONAL_ADVICE: [
-            ("rational_advice", False, IS_DICT, "rational_advice（合理建议信息根对象）："),
-            ("rational_advice.summary", False, IS_STR, "summary（合理建议事件摘要）："),
-            ("rational_advice.semantic_notation", False, IS_STR, "semantic_notation（结构化合理建议语义标识）："),  # ← 用于跨模块关联
-            ("rational_advice.evidence", False, IS_LIST, "evidence（全局合理建议证据片段）："),
+        LLM_MANIPULATION_DECODE: [
+            ("manipulation_decode", False, IS_DICT, "manipulation_decode（操控机制解码根对象）："),
+            ("manipulation_decode.events", False, IS_LIST, "events（操控机制事件列表）："),
+            ("manipulation_decode.events.*.mechanism_type", False, IS_STR,
+             "mechanism_type（操控机制大类：guilt_induction / fear_appeal / love_bombing / choice_elimination / reputation_leverage / false_generosity / public_shaming_avoidance）："),
+            ("manipulation_decode.events.*.technique", False, IS_STR, "technique（具体实施技术）："),
+            ("manipulation_decode.events.*.leverage_point", False, IS_STR, "leverage_point（所利用的心理/社会杠杆点）："),
+            ("manipulation_decode.events.*.intended_effect", False, IS_STR, "intended_effect（预期达成的心理或社会效果）："),
+            ("manipulation_decode.events.*.exit_barrier_created", False, IS_STR,
+             "exit_barrier_created（所制造的退出障碍）："),
+            ("manipulation_decode.events.*.anchor_perceptions", False, IS_LIST,
+             "anchor_perceptions（引用的底层感知事件 semantic_notation 列表）："),
+            ("manipulation_decode.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
+            ("manipulation_decode.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化操控机制解码语义标识）："),
 
-            ("rational_advice.safety_first_intervention", False, IS_LIST,
-             "safety_first_intervention（优先确保低位者安全的最小可行干预措施）："),
-            ("rational_advice.systemic_leverage_point", False, IS_LIST,
-             "systemic_leverage_point（可撬动系统动态的关键支点）："),
+            ("manipulation_decode.synthesis", False, IS_STR, "synthesis（操控机制的全局研判）："),
+        ],
 
-            # 分阶段策略（保持不变，已很完善）
-            ("rational_advice.incremental_strategy", False, IS_LIST, "incremental_strategy（分阶段、低风险的行动策略）："),
-            ("rational_advice.incremental_strategy.*.action", True, IS_STR, "action（具体可执行的行为动作）："),
-            ("rational_advice.incremental_strategy.*.timing_or_condition", False, IS_STR,
-             "timing_or_condition（执行该动作的时机或触发条件）："),
-            ("rational_advice.incremental_strategy.*.required_resource", False, IS_STR,
-             "required_resource（执行所需且已提及的资源）："),
-            ("rational_advice.incremental_strategy.*.potential_risk", False, IS_STR, "potential_risk（可能引发的负面反应或风险）："),
-            ("rational_advice.incremental_strategy.*.contingency_response", False, IS_STR,
-             "contingency_response（风险发生时的应对措施）："),
+        # ────────────────────────────────────────
+        # 19. 最小可行性建议
+        # ────────────────────────────────────────
+        LLM_MINIMAL_VIABLE_ADVICE: [
+            ("minimal_viable_advice", False, IS_DICT, "minimal_viable_advice（最小可行性建议根对象）："),
+            ("minimal_viable_advice.events", False, IS_LIST, "events（建议事件列表）："),
+            ("minimal_viable_advice.events.*.counter_action", False, IS_STR, "counter_action（可执行的破局行动）："),
+            ("minimal_viable_advice.events.*.targeted_mechanism", False, IS_STR, "targeted_mechanism（所针对的操控机制或环节）："),
+            ("minimal_viable_advice.events.*.expected_disruption", False, IS_STR, "expected_disruption（预期破坏的机制效果）："),
+            ("minimal_viable_advice.events.*.feasibility_condition", False, IS_STR, "feasibility_condition（行动可行的前提条件）："),
+            ("minimal_viable_advice.events.*.anchor_perceptions", False, IS_LIST, "anchor_perceptions（引用的底层感知事件 semantic_notation 列表）："),
+            ("minimal_viable_advice.events.*.evidence", False, IS_LIST, "evidence（事件级原文证据）："),
+            ("minimal_viable_advice.events.*.semantic_notation", False, IS_STR, "semantic_notation（结构化最小可行性建议语义标识）："),
 
-            # 回退计划：改为结构化（每条含 condition + action）
-            ("rational_advice.fallback_plan", False, IS_LIST,
-             "fallback_plan（高风险触发时的最小安全回退措施）："),
-            ("rational_advice.fallback_plan.*.trigger_condition", True, IS_STR,
-             "trigger_condition（触发该回退措施的具体信号或条件）："),
-            ("rational_advice.fallback_plan.*.fallback_action", True, IS_STR,
-             "fallback_action（执行的最小安全行动）："),
-
-            ("rational_advice.long_term_exit_path", False, IS_LIST,
-             "long_term_exit_path（可持续脱离当前结构的现实路径）："),
-            ("rational_advice.available_social_support_reinterpretation", False, IS_LIST,  # ← 修复结尾空格！
-             "available_social_support_reinterpretation（对现有支持网络的重新解读与激活方式）："),
-
-            # 利益相关方代价（保持）
-            ("rational_advice.stakeholder_tradeoffs", False, IS_DICT, "stakeholder_tradeoffs（各方代价评估）："),
-            ("rational_advice.stakeholder_tradeoffs.victim_cost", False, IS_LIST,
-             "victim_cost（低位者可能承担的风险或损失）："),
-            ("rational_advice.stakeholder_tradeoffs.oppressor_loss", False, IS_LIST,
-             "oppressor_loss（高位者可能失去的资源、特权或控制力）："),
-            ("rational_advice.stakeholder_tradeoffs.system_stability", False, IS_LIST,
-             "system_stability（对家庭/组织短期稳定性的潜在冲击）："),
-            ("rational_advice.stakeholder_tradeoffs.evidence", False, IS_LIST,
-             "evidence（代价评估所依据的原文或推理）：")
+            ("minimal_viable_advice.synthesis", False, IS_STR, "synthesis（建议层面的全局总结）："),
         ]
     }
 }
 
-# === 基线策略：严格模式===
+# === 基线策略===
 STRICT_IRON_LAW_POLICY = {
-    "context_isolation": True,
-    "field_existence": "omit_if_absent",
-    "literalism": True,
-    "structure_consistency": True,
-    "output_clean_json": True,
-    "max_capture_min_fabrication": True,
-    "enable_perception_rules": False
+    "enforce_field_existence": True,
+    "enforce_literal_extraction": True,
+    "enforce_clean_json": True,
 }
 
 # === 步骤级策略覆盖表（按 step 名称定制）===
 STEP_POLICY_OVERRIDES: Dict[str, Dict] = {
-    # —————— 感知层（全部启用统一规则）——————
-    "LLM_PERCEPTION_TEMPORAL_EXTRACTION": {"enable_perception_rules": True},
-    "LLM_PERCEPTION_SPATIAL_EXTRACTION": {"enable_perception_rules": True},
-    "LLM_PERCEPTION_VISUAL_EXTRACTION": {"enable_perception_rules": True},
-    "LLM_PERCEPTION_AUDITORY_EXTRACTION": {"enable_perception_rules": True},
-    "LLM_PERCEPTION_OLFACTORY_EXTRACTION": {"enable_perception_rules": True},
-    "LLM_PERCEPTION_TACTILE_EXTRACTION": {"enable_perception_rules": True},
-    "LLM_PERCEPTION_GUSTATORY_EXTRACTION": {"enable_perception_rules": True},
-    "LLM_PERCEPTION_INTEROCEPTIVE_EXTRACTION": {"enable_perception_rules": True},
-    "LLM_PERCEPTION_COGNITIVE_EXTRACTION": {"enable_perception_rules": True},
-    "LLM_PERCEPTION_BODILY_EXTRACTION": {"enable_perception_rules": True},
-    "LLM_PERCEPTION_EMOTIONAL_EXTRACTION": {"enable_perception_rules": True},
-    "LLM_PERCEPTION_SOCIAL_RELATION_EXTRACTION": {"enable_perception_rules": True},
+    # —————— 预处理层——————
+    "LLM_DIMENSION_GATE": {
+        "enforce_field_existence": False,
+        "enforce_literal_extraction": False
+    },
+    "LLM_INFERENCE_ELIGIBILITY": {
+        "enforce_field_existence": False,
+        "enforce_literal_extraction": False
+    },
 
-    # —————— 非感知层（特殊策略）——————
-    "LLM_EXPLICIT_MOTIVATION_EXTRACTION": {
-        "literalism": False,  # 允许从心理描写、自由间接引语中提取
-        "allow_metaphor_based_intent": True,
-        "allow_rhetorical_questions": True
-    },
-    "LLM_INFERENCE": {
-        "context_isolation": False,  # 推理层需访问感知层输出
-        "literalism": False,  # 本就是推理，当然要推
-        "output_clean_json": True,  # 但输出仍需干净
-    },
-    "LLM_RATIONAL_ADVICE": {
-        "literalism": False,  # 建议需基于推理结果生成
-        "context_isolation": False,
-    }
+    "LLM_PERCEPTION_TEMPORAL_EXTRACTION": {"enforce_literal_extraction": False},
+    "LLM_PERCEPTION_SPATIAL_EXTRACTION": {"enforce_literal_extraction": False},
+    "LLM_PERCEPTION_VISUAL_EXTRACTION": {"enforce_literal_extraction": False},
+    "LLM_PERCEPTION_AUDITORY_EXTRACTION": {"enforce_literal_extraction": False},
+    "LLM_PERCEPTION_OLFACTORY_EXTRACTION": {"enforce_literal_extraction": False},
+    "LLM_PERCEPTION_TACTILE_EXTRACTION": {"enforce_literal_extraction": False},
+    "LLM_PERCEPTION_GUSTATORY_EXTRACTION": {"enforce_literal_extraction": False},
+    "LLM_PERCEPTION_INTEROCEPTIVE_EXTRACTION": {"enforce_literal_extraction": False},
+    "LLM_PERCEPTION_COGNITIVE_EXTRACTION": {"enforce_literal_extraction": False},
+    "LLM_PERCEPTION_BODILY_EXTRACTION": {"enforce_literal_extraction": False},
+    "LLM_PERCEPTION_EMOTIONAL_EXTRACTION": {"enforce_literal_extraction": False},
+    "LLM_PERCEPTION_SOCIAL_RELATION_EXTRACTION": {"enforce_literal_extraction": False},
+
 }
 
 
@@ -723,73 +606,87 @@ def get_effective_policy(step_name: str) -> Dict:
 
 def render_iron_law_from_policy(policy: Dict) -> str:
     """将策略字典渲染为自然语言铁律文本"""
-    lines = ["### 【绝对铁律】"]
+    lines = []
+    if policy.get("enforce_field_existence", True):
+        lines.append(
+            "**绝对存在性**：判定一个字段是否输出的唯一标准，是看其值是否拥有‘合法的原文依据’。‘合法依据’包括：1) 原文直接陈述的字面内容；2) 基于原文进行直接或间接的、逻辑必然的合理推演结果。若某字段在原文及其逻辑推演范围内均无对应依据，则该字段（含键名）必须彻底省略，严禁填充占位符（如'未知'、null、空字符串）。"
+        )
 
-    if policy.get("context_isolation"):
-        lines.append("1. 【上下文隔离原则】")
-        lines.append("   - 完全无视历史对话与外部知识，禁止参考、延续或模仿任何过往输出内容，包括指令中的示例。")
-    else:
-        lines.append("1. 【上下文感知原则】")
-        lines.append("   - 可安全访问已验证的上游输出作为当前任务的合法依据。")
+    if policy.get("enforce_literal_extraction", True):
+        lines.append(
+            "**精准推演边界**：所有推演必须严格基于当前语境内已呈现的信息（包括显性陈述、行为描述、指称关系、情绪反应及重复模式），通过逻辑必要性或唯一合理解释导出结论。允许进行代词消解、意图反推、心理机制建模、社会脚本调用、行为模式归纳等高阶推理，但禁止依赖任何未在语境中支持的外部知识、常识假设、统计规律或价值预设。若移除所依赖的语境证据，推论即不成立，则该推论合法；否则视为过度脑补。")
 
-    if policy.get("field_existence") == "omit_if_absent":
-        lines.append("2. 【字段存在性总则】")
-        lines.append("   - 字段仅在原文中存在直接、字面且语法关联的显式依据时方可输出。")
-        lines.append("   - 无原文锚定的字段必须完全省略，禁止使用‘未提及’、‘未知’等占位符，亦不得以空字符串、null、空列表等形式表示。")
-
-    if policy.get("literalism"):
-        lines.append("3. 【字面主义至上】")
-        lines.append("   - 所有属性值必须为原文中连续、字面、未改写的子字符串；")
-        lines.append("     严禁基于逻辑、因果、心理、常识、语境暗示、修辞隐喻或事件关联进行任何形式的推断、演绎、归纳或角色定性。")
-        lines.append("   - 无直接文字 = 无字段。")
-    else:
-        lines.append("3. 【有限推演许可原则】")
-        permitted = []
-        if policy.get("allow_metaphor_based_intent"):
-            permitted.append("具象化心理描写（如‘恐惧像藤蔓绞紧心脏’）中直接关联行为动因或身份认知的意图")
-        if policy.get("allow_rhetorical_questions"):
-            permitted.append("反问或自问句（如‘我究竟是谁？’）作为身份困惑的显式证据")
-        if permitted:
-            lines.append("   - 允许从以下类型的非字面表达中提取结构化语义：")
-            for item in permitted:
-                lines.append(f"     • {item}")
-        else:
-            lines.append("   - 允许基于任务目标进行必要推理，但所有结论仍需有输入中的显式语义锚点。")
-        lines.append("   - 严禁无锚点的常识联想、角色补全或跨域泛化。")
-
-    if policy.get("structure_consistency"):
-        lines.append("4. 【结构一致性原则】")
-        lines.append("   - 输出必须严格遵循指定 schema：字段名、类型、嵌套层级与序列格式均不得偏离。")
-        lines.append("   - 所有列表字段若有值，须以非空列表形式（如 ['value']）返回；禁止使用裸字符串、数值、字典、null 或混合类型。")
-        lines.append("   - 无有效值的字段（包括列表）必须完全省略，不得输出空列表或任何占位形式。")
-
-    if policy.get("output_clean_json"):
-        lines.append("5. 【输出洁净原则】")
-        lines.append("   - 仅返回目标数据结构本身，无前缀、后缀、解释、注释、Markdown 或额外文本。")
-
-    if policy.get("max_capture_min_fabrication"):
-        lines.append("6. 【最大捕获最小编造原则】")
-        if policy.get("literalism"):
-            lines.append("   - 在严格字面约束下，穷尽所有可被直接锚定的语义单元；")
-        else:
-            lines.append("   - 在当前任务允许的表达范围内（如心理描写、自问句等），")
-            lines.append("     穷尽所有可结构化的显式语义；")
-        lines.append("   - 严禁以任何方式引入原文未出现的信息：包括但不限于常识推断、背景设定、角色动机、隐含关系、默认值或‘合理想象’。")
-        lines.append("   - 所有输出必须可逐字回溯至 【唯一信源】；无法验证 = 不得存在。")
-        lines.append("   - 目标：不错过，不编造。")
-
-    if policy.get("enable_perception_rules", False):
-        lines.append("7. 【感知层提取铁律】")
-        lines.append("   - 【evidence 锚定】evidence 必须为原文中的连续子字符串，标点、大小写、数字格式完全一致；禁止 paraphrasing、概括、翻译、增删或改写。")
-        lines.append("   - 【experiencer 提取优先级】按序确定：")
-        lines.append("     • 优先提取与事件主语显式共指的具体 noun phrase（如同位语、前句主语、重复完整指称）；")
-        lines.append("     • 若无具体 noun phrase，则提取代词，并标记为 '<代词>[uncertain]'；")
-        lines.append("     • 仅当事件完全无主体（无人称句、纯客观陈述）且语法上无法推断感知主体时，才可省略 experiencer 字段。")
-        lines.append("   - 【具体指称处理】experiencer 为具体 noun phrase 或专有名称时，直接逐字复制，不加任何标记。")
-        lines.append("   - 【代词不确定性标记】以下情形必须标记 [uncertain]：")
-        lines.append("     • 主语为代词（如'他''我'）且无明确共指对象；")
-        lines.append("     • 主语为泛指（如'有人''一个人'）；")
-        lines.append("     • 无法从上下文唯一确定指称的代词。")
-        lines.append("   - 【标记完整性】禁止输出裸代词；所有代词 experiencer 必须包含 [uncertain] 标记。")
+    if policy.get("enforce_clean_json", True):
+        lines.append("**结构纯净**：输出必须是一个紧凑的、合法的 JSON 对象，且仅包含此 JSON，无任何额外文本、说明或标记。")
 
     return "\n".join(lines)
+
+
+MENTION_TYPES_CONFIG = {
+    "temporal": {
+        "frequency", "range", "relative", "cultural", "duration",
+        "absolute", "negated", "uncertain"
+    },
+    "spatial": {
+        "relative", "direction", "topological", "toward",
+        "cultural", "negated", "measure", "location",
+        "layout"
+    },
+    "visual": {
+        "color", "brightness", "expression", "posture",
+        "object", "entity", "optical", "negated", "gaze",
+        "contact", "medium", "occlusion", "lighting"
+    },
+    "auditory": {
+        "verb", "speech", "sound", "intensity", "prosody",
+        "medium", "background", "source", "negated"
+    },
+    "olfactory": {
+        "odor", "source", "intensity", "valence",
+        "negated", "action", "category"
+    },
+    "tactile": {
+        "pain", "target", "body", "descriptor", "intensity",
+        "texture", "temperature", "motion",
+        "vibration", "moisture", "mode", "negated"
+    },
+    "gustatory": {
+        "source", "basic", "complex", "thermal", "evaluation", "intensity",
+        "body", "negated"
+    },
+    "interoceptive": {
+        "body", "cardiac", "respiratory", "gastrointestinal", "thermal",
+        "muscular", "visceral", "dizziness", "nausea", "fatigue",
+        "thirst", "intensity", "initiator", "negated"
+    },
+    "cognitive": {
+        "belief", "intention", "inference", "memory", "doubt",
+        "evaluation", "solving", "meta", "certainty", "negated"
+    },
+    "bodily": {
+        "movement", "posture", "facial", "vocal", "autonomic",
+        "freeze", "faint", "action", "intensity", "negated"
+    },
+    "emotional": {
+        "emotion", "valence", "arousal", "intensity", "mode",
+        "verb", "adjective", "adverb", "mixed"
+    },
+    "social_relation": {
+        "kinship", "role", "address", "possessive", "relation_verb",
+        "compound", "duration", "distance"
+    },
+    "inference": {
+        "causal", "conditional", "counterfact", "abductive",
+        "normative", "predictive", "evaluative", "attribution",
+    },
+    "explicit_motivation": {
+        "fear", "care", "distress", "protective", "control",
+        "resource", "survival", "norm", "justification",
+        "blame", "moral", "internalized"
+    },
+    "rational_advice": {
+        "safety", "vulnerability", "action", "trigger", "resource",
+        "retaliation", "contingency", "signal", "fallback",
+        "exit", "support"
+    }
+}

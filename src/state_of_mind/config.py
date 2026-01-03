@@ -39,7 +39,7 @@ class Config:
         'MAX_PARALLEL_CONCURRENCY', 'LLM_CACHE_MAX_SIZE', 'LLM_CACHE_TTL', 'LLM_API_TIMEOUT',
         'WATERMARK_ENABLED', 'WATERMARK_TEXT', 'WATERMARK_COLOR', 'WATERMARK_OPACITY',
         'WATERMARK_FONT_SIZE', 'WATERMARK_ANGLE', 'WATERMARK_SPACING_COLS', 'WATERMARK_SPACING_ROWS',
-        'WATERMARK_PADDING',
+        'WATERMARK_PADDING', 'AUTOGEN_ENABLED', 'AUTOGEN_STEP_SELECTION',
         'logger', 'metadata', '_registry',
     ]
 
@@ -167,6 +167,9 @@ class Config:
         self.WATERMARK_SPACING_COLS = get_config("XINJING_WATERMARK_SPACING_COLS", 5, cast=int)
         self.WATERMARK_SPACING_ROWS = get_config("XINJING_WATERMARK_SPACING_ROWS", 8, cast=int)
         self.WATERMARK_PADDING = get_config("XINJING_WATERMARK_PADDING", 30, cast=int)
+
+        self.AUTOGEN_ENABLED = get_config("XINJING_AUTOGEN_ENABLED", False, cast=bool)
+        self.AUTOGEN_STEP_SELECTION = get_config("XINJING_AUTOGEN_STEP_SELECTION", {}, cast=dict)
 
     @staticmethod
     def _load_metadata() -> Dict[str, Any]:

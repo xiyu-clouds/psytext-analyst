@@ -7,7 +7,7 @@ from starlette.responses import HTMLResponse
 from starlette.staticfiles import StaticFiles
 from src.state_of_mind.core.orchestration import MetaCognitiveOrchestrator
 from src.state_of_mind.config import config
-from src.state_of_mind.stages.perception.constants import DEFAULT_API_URLS
+from src.state_of_mind.stages.perception.constants import DEFAULT_API_URLS, ALL_STEPS_FOR_FRONTEND
 from src.state_of_mind.utils.constants import PATH_FILE_APP_JSON, LLMModelConst
 from src.state_of_mind.utils.file_util import FileUtil
 from src.state_of_mind.utils.logger import LoggerManager as logger
@@ -250,6 +250,20 @@ async def serve_report(filename: str):
 
     logger.info(f"✅ 成功返回报告: {filename}", module_name=CHINESE_NAME)
     return HTMLResponse(report_path.read_text(encoding="utf-8"))
+
+
+@app.get("/api/steps")
+async def get_steps():
+    logger.info("开始预加载全息感知基底阶段的各环节基础 Prompt 数据...")
+    try:
+        from src.state_of_mind.stages.perception.prompt_builder import PromptBuilder
+        prompt_builder = PromptBuilder()
+        prompt_builder.pre_basic_data()
+        logger.info(f"全息感知基底 Prompt 预加载完成")
+        return ALL_STEPS_FOR_FRONTEND
+    except Exception as e:
+        logger.exception("预加载 /api/steps 失败：构建 Prompt 基础数据时发生异常")
+        raise
 
 
 @app.post("/api/analyze")

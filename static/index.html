@@ -258,6 +258,27 @@
   textarea#cfg-XINJING_LLM_RECOMMENDED_PARAMS {
     min-height: 120px !important;
   }
+
+  .autogen-mode-selector label {
+      margin-right: 15px;
+      cursor: pointer;
+    }
+  .autogen-step-checkbox {
+      display: inline-block;
+      margin: 4px 8px;
+      padding: 6px;
+      background: #f9f9f9;
+      border-radius: 4px;
+      font-size: 14px;
+  }
+  .autogen-step-checkbox:hover {
+      background: #f0f0f0;
+  }
+  #autogenTypeSelection label,
+  #autogenCustomSelection label {
+      margin-right: 12px;
+      display: inline-block;
+  }
 </style>
 </head>
 <body>
@@ -305,8 +326,9 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/axios@1.6.8/dist/axios.min.js"></script>
+
   <script>
-    // === 配置项说明元数据 ===
+    // === 1. 配置元数据（保持不变）===
     const CONFIG_METADATA = {
       "XINJING_REPORT_TITLE": "报告标题，用于标识生成的分析报告内容",
       "XINJING_STORAGE_BACKEND": "存储后端类型，当前使用 Redis 作为缓存与状态存储",
@@ -338,70 +360,93 @@
       "XINJING_WATERMARK_ANGLE": "水印旋转角度，单位为度（°），负值表示逆时针旋转（如 -30 表示左上至右下斜向）",
       "XINJING_WATERMARK_SPACING_COLS": "水印网格的列数，控制水平方向密度（数值越大越稀疏）",
       "XINJING_WATERMARK_SPACING_ROWS": "水印网格的行数，控制垂直方向密度（数值越大越稀疏）",
-      "XINJING_WATERMARK_PADDING": "每个水印单元格的内边距，单位为像素（px），影响文字间距"
+      "XINJING_WATERMARK_PADDING": "每个水印单元格的内边距，单位为像素（px），影响文字间距",
+      "XINJING_AUTOGEN_ENABLED": "是否启用AutoGen优化prompt",
+      "XINJING_AUTOGEN_STEP_SELECTION": "Autogen 步骤选择策略（仅当 XINJING_AUTOGEN_ENABLED=true 时生效）"
     };
 
-    // === 配置分组顺序（清晰分离，便于维护）===
     const CONFIG_DISPLAY_ORDER = [
-      // 报告
       "XINJING_REPORT_TITLE",
-
-      // LLM 核心
-      "XINJING_LLM_BACKEND",
-      "XINJING_LLM_MODEL",
-      "XINJING_LLM_API_URL",
-      "XINJING_LLM_API_KEY",
-      "XINJING_LLM_API_TIMEOUT",
-      "XINJING_LLM_RECOMMENDED_PARAMS",
-
-      // 建议类型
+      "XINJING_LLM_BACKEND", "XINJING_LLM_MODEL", "XINJING_LLM_API_URL", "XINJING_LLM_API_KEY", "XINJING_LLM_API_TIMEOUT", "XINJING_LLM_RECOMMENDED_PARAMS",
       "XINJING_SUGGESTION_TYPE",
-
-      // 存储 & Redis
-      "XINJING_STORAGE_BACKEND",
-      "XINJING_LLM_CACHE_MAX_SIZE",
-      "XINJING_LLM_CACHE_TTL",
-      "XINJING_REDIS_HOST",
-      "XINJING_REDIS_PORT",
-      "XINJING_REDIS_DB",
-      "XINJING_REDIS_PASSWORD",
-      "XINJING_REDIS_TIMEOUT",
-
-      // 并发
-      "XINJING_MAX_PARALLEL_CONCURRENCY",
-      "XINJING_CURRENT_PARALLEL_CONCURRENCY",
-      "XINJING_MEDIUM_PARALLEL_CONCURRENCY",
-
-      // 日志
-      "XINJING_LOG_KEEP_DAYS",
-      "XINJING_LOG_MAX_BYTES",
-      "XINJING_LOG_BACKUP_COUNT",
-
-      // 水印
-      "XINJING_WATERMARK_ENABLED", // ← 注意：这里拼错了！
-      "XINJING_WATERMARK_TEXT",
-      "XINJING_WATERMARK_COLOR",
-      "XINJING_WATERMARK_OPACITY",
-      "XINJING_WATERMARK_FONT_SIZE",
-      "XINJING_WATERMARK_ANGLE",
-      "XINJING_WATERMARK_SPACING_COLS",
-      "XINJING_WATERMARK_SPACING_ROWS",
-      "XINJING_WATERMARK_PADDING",
+      "XINJING_STORAGE_BACKEND", "XINJING_LLM_CACHE_MAX_SIZE", "XINJING_LLM_CACHE_TTL",
+      "XINJING_REDIS_HOST", "XINJING_REDIS_PORT", "XINJING_REDIS_DB", "XINJING_REDIS_PASSWORD", "XINJING_REDIS_TIMEOUT",
+      "XINJING_MAX_PARALLEL_CONCURRENCY", "XINJING_CURRENT_PARALLEL_CONCURRENCY", "XINJING_MEDIUM_PARALLEL_CONCURRENCY",
+      "XINJING_LOG_KEEP_DAYS", "XINJING_LOG_MAX_BYTES", "XINJING_LOG_BACKUP_COUNT",
+      "XINJING_WATERMARK_ENABLED", "XINJING_WATERMARK_TEXT", "XINJING_WATERMARK_COLOR", "XINJING_WATERMARK_OPACITY",
+      "XINJING_WATERMARK_FONT_SIZE", "XINJING_WATERMARK_ANGLE", "XINJING_WATERMARK_SPACING_COLS", "XINJING_WATERMARK_SPACING_ROWS", "XINJING_WATERMARK_PADDING",
+      "XINJING_AUTOGEN_ENABLED", "XINJING_AUTOGEN_STEP_SELECTION"
     ];
 
-    let currentConfig = {};
+    // === 2. 全局状态管理 ===
+    const AppState = {
+      config: {},
+      allSteps: [],
 
+      setConfig(newConfig) {
+        this.config = { ...newConfig };
+      },
 
-    // --- UI 工具 ---
-    function showError(msg) {
-      const el = document.getElementById('globalError');
-      el.textContent = `❌ ${msg}`;
-      el.style.display = 'block';
-      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    }
+      getConfig() {
+        return { ...this.config };
+      },
 
-    function hideError() {
-      document.getElementById('globalError').style.display = 'none';
+      updateConfig(key, value) {
+        this.config[key] = value;
+      },
+
+      getAllSteps() {
+        return [...this.allSteps];
+      },
+
+      setAllSteps(steps) {
+        this.allSteps = Array.isArray(steps) ? steps : [];
+      }
+    };
+
+    // === 3. API 客户端 ===
+    const ApiClient = {
+      async loadConfig() {
+        const res = await axios.get('/api/config');
+        if (!res.data || typeof res.data !== 'object') throw new Error('无效配置格式');
+        return res.data;
+      },
+
+      async saveConfig(config) {
+        await axios.post('/api/config', config);
+      },
+
+      async loadSteps() {
+        const res = await axios.get('/api/steps');
+        return Array.isArray(res.data) ? res.data : [];
+      },
+
+      async analyze(text) {
+        const res = await axios.post('/api/analyze', {
+          text,
+          title: "全息感知基底分析报告"
+        });
+        return res.data;
+      }
+    };
+
+    // === 4. 工具函数 ===
+    function parseConfigValue(str, key) {
+      if (str === 'null') return null;
+      if (str === 'true') return true;
+      if (str === 'false') return false;
+      if (/^-?\d+$/.test(str)) return parseInt(str, 10);
+      if (/^-?\d*\.\d+$/.test(str)) return parseFloat(str);
+
+      if (key === 'XINJING_LLM_RECOMMENDED_PARAMS') {
+        try {
+          const parsed = JSON.parse(str);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+        } catch (e) {
+          throw new Error(`"${key}" 必须是有效的 JSON 对象`);
+        }
+      }
+      return str;
     }
 
     function showMessage(text, isError = false) {
@@ -413,168 +458,31 @@
       setTimeout(() => el.style.display = 'none', 3000);
     }
 
-
-    // --- 报告渲染 ---
-    function renderReport(data) {
-      const el = document.getElementById('result');
-      let html = `<div class="report-title">${data.title || '全息感知基底分析报告'}</div>`;
-
-      const sections = [
-        { key: 'emotion', label: '😊 情绪感知' },
-        { key: 'scene', label: '🌌 场景还原' },
-        { key: 'character_state', label: '👤 人物状态' },
-        { key: 'suggestion', label: '💡 建议' }
-      ];
-
-      sections.forEach(s => {
-        if (data[s.key]) {
-          html += `
-            <div class="report-section">
-              <h3>${s.label}</h3>
-              <div class="report-content">${data[s.key]}</div>
-            </div>
-          `;
-        }
-      });
-
-      el.innerHTML = html;
+    function showError(msg) {
+      const el = document.getElementById('globalError');
+      el.textContent = `❌ ${msg}`;
       el.style.display = 'block';
-      hideError();
+      el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
-
-    // --- 配置解析 ---
-    function parseConfigValue(str, key) {
-      if (str === 'null') return null;
-      if (str === 'true') return true;
-      if (str === 'false') return false;
-      if (/^-?\d+$/.test(str)) return parseInt(str, 10);
-      if (/^-?\d*\.\d+$/.test(str)) return parseFloat(str);
-
-      // 特殊处理 JSON 对象
-      if (key === 'XINJING_LLM_RECOMMENDED_PARAMS') {
-        try {
-          const parsed = JSON.parse(str);
-          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-            return parsed;
-          }
-        } catch (e) {
-          throw new Error(`"${key}" 必须是有效的 JSON 对象`);
-        }
-      }
-
-      return str;
+    function hideError() {
+      document.getElementById('globalError').style.display = 'none';
     }
 
-
-    // --- 配置渲染 ---
-    function createInputForValue(key, value) {
-      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-        const textarea = document.createElement('textarea');
-        textarea.value = JSON.stringify(value, null, 2);
-        textarea.className = 'config-value-textarea';
-        if (key === 'XINJING_LLM_RECOMMENDED_PARAMS') {
-          textarea.id = 'cfg-XINJING_LLM_RECOMMENDED_PARAMS';
-        }
-        return textarea;
-      } else {
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.value = value === null ? 'null' : String(value);
-        input.className = 'config-value-input';
-        return input;
-      }
-    }
-
-    function renderConfigRow(key, value) {
-      const desc = CONFIG_METADATA[key] || '无说明';
-      const tr = document.createElement('tr');
-
-      const keyCell = document.createElement('td');
-      const keySpan = document.createElement('span');
-      keySpan.className = 'config-key';
-      keySpan.title = desc;
-      keySpan.textContent = key;
-      keyCell.appendChild(keySpan);
-
-      const valueCell = document.createElement('td');
-      const input = createInputForValue(key, value);
-      input.dataset.key = key;
-      input.spellcheck = false;
-      valueCell.appendChild(input);
-
-      tr.appendChild(keyCell);
-      tr.appendChild(valueCell);
-      return tr;
-    }
-
-    function renderConfigTable(configObj) {
-      const tbody = document.getElementById('configTableBody');
-      const fragment = document.createDocumentFragment();
-
-      const configKeys = new Set(Object.keys(configObj));
-      const rendered = new Set();
-
-      // 按预设顺序渲染
-      for (const key of CONFIG_DISPLAY_ORDER) {
-        if (configKeys.has(key)) {
-          fragment.appendChild(renderConfigRow(key, configObj[key]));
-          rendered.add(key);
-        }
-      }
-
-      // 渲染剩余项（兜底）
-      for (const key of configKeys) {
-        if (!rendered.has(key)) {
-          fragment.appendChild(renderConfigRow(key, configObj[key]));
-        }
-      }
-
-      tbody.innerHTML = '';
-      tbody.appendChild(fragment);
-      currentConfig = { ...configObj };
-    }
-
-
-    // --- API 调用 ---
-    async function loadConfigAsTable() {
+    window.loadConfigAsTable = async function() {
       try {
-        const res = await axios.get('/api/config');
-        renderConfigTable(res.data);
-        showMessage('✅ 配置加载成功');
+        const config = await ApiClient.loadConfig();
+        AppState.setConfig(config);
+        UiRenderer.renderConfigTable(config);
+        showMessage('✅ 配置已从服务端加载');
       } catch (err) {
         const msg = err.response?.data?.detail || '配置加载失败';
         showError(msg);
+        console.error(err);
       }
-    }
+    };
 
-    async function saveConfigFromTable() {
-      const inputs = document.querySelectorAll('#configTableBody [data-key]');
-      const newConfig = {};
-
-      for (const el of inputs) {
-        const key = el.dataset.key;
-        const raw = el.value.trim();
-        try {
-          newConfig[key] = parseConfigValue(raw, key);
-        } catch (e) {
-          showError(e.message || `配置项 "${key}" 格式错误`);
-          return;
-        }
-      }
-
-      try {
-        await axios.post('/api/config', newConfig);
-        showMessage('✅ 配置已保存');
-      } catch (e) {
-        const msg = e.response?.data?.detail || '保存失败';
-        showError(msg);
-      }
-    }
-
-
-    // --- 主流程 ---
-    async function analyze() {
+    window.analyze = async function() {
       const text = document.getElementById('inputText').value.trim();
       if (!text) {
         showError('请输入文本内容');
@@ -596,10 +504,10 @@
       }
 
       try {
-        const res = await axios.post('/api/analyze', { text, title: "全息感知基底分析报告" });
-        const { report_url } = res.data;
-        if (report_url) {
-          reportWindow.location.href = report_url;
+        // 👇 关键：使用 ApiClient 统一调用
+        const data = await ApiClient.analyze(text);
+        if (data.report_url) {
+          reportWindow.location.href = data.report_url;
         } else {
           reportWindow.close();
           showError('未获取到有效的报告路径');
@@ -613,22 +521,362 @@
         btn.disabled = false;
         loading.style.display = 'none';
       }
+    };
+
+    // === 5. Autogen Step 选择器组件 ===
+    class AutogenStepSelector {
+      constructor(initialValue, onValueChange) {
+        this.onValueChange = onValueChange;
+        this.container = document.createElement('div');
+        this.container.dataset.isAutogenStep = 'true';
+
+        this.state = {
+          mode: 'all',
+          selectedTypes: [],
+          selectedIds: []
+        };
+
+        if (initialValue && typeof initialValue === 'object') {
+          this.state.mode = initialValue.mode || 'all';
+          this.state.selectedTypes = Array.isArray(initialValue.selected_types) ? [...initialValue.selected_types] : [];
+          this.state.selectedIds = Array.isArray(initialValue.selected_ids) ? [...initialValue.selected_ids] : [];
+        }
+
+        this.render();
+        this.updateDynamicContent();
+      }
+
+      render() {
+        const modeGroup = document.createElement('div');
+        modeGroup.style.marginBottom = '8px';
+        ['all', 'by_type', 'custom'].forEach(m => {
+          const label = document.createElement('label');
+          label.style.marginRight = '12px';
+          label.style.cursor = 'pointer';
+          const radio = document.createElement('input');
+          radio.type = 'radio';
+          radio.name = 'autogen_mode_' + Date.now(); // 避免跨实例冲突
+          radio.value = m;
+          radio.checked = this.state.mode === m;
+          radio.onchange = () => {
+            if (radio.checked) {
+              const oldMode = this.state.mode;
+              const newMode = m;
+
+              if (newMode === 'all') {
+                this.state.selectedTypes = [];
+                this.state.selectedIds = [];
+              } else if (newMode === 'by_type') {
+                this.state.selectedIds = [];
+              } else if (newMode === 'custom') {
+                this.state.selectedTypes = [];
+              }
+
+              this.state.mode = newMode;
+              this.updateDynamicContent();
+              this.notifyChange();
+            }
+          };
+          label.appendChild(radio);
+          label.appendChild(document.createTextNode(
+            m === 'all' ? 'All' :
+            m === 'by_type' ? 'By Type' : 'Custom'
+          ));
+          modeGroup.appendChild(label);
+        });
+        this.container.appendChild(modeGroup);
+
+        this.dynamicArea = document.createElement('div');
+        this.container.appendChild(this.dynamicArea);
+      }
+
+      updateDynamicContent() {
+        this.dynamicArea.innerHTML = '';
+
+        if (this.state.mode === 'by_type') {
+          const steps = AppState.getAllSteps();
+          if (steps.length === 0) {
+            this.dynamicArea.innerHTML = '<em>步骤数据未加载，请刷新页面</em>';
+            ApiClient.loadSteps().then(s => {
+              AppState.setAllSteps(s);
+              this.updateDynamicContent();
+            }).catch(() => {
+              this.dynamicArea.innerHTML = '<em style="color:#d32f2f">⚠️ 步骤加载失败</em>';
+            });
+            return;
+          }
+
+          const types = [...new Set(steps.map(s => s.type).filter(t => t != null))];
+          if (types.length === 0) {
+            this.dynamicArea.innerHTML = '<em>无可用类型</em>';
+            return;
+          }
+
+          types.forEach(type => {
+            const chkLabel = document.createElement('label');
+            chkLabel.style.display = 'block';
+            chkLabel.style.marginTop = '4px';
+            chkLabel.style.cursor = 'pointer';
+            const chk = document.createElement('input');
+            chk.type = 'checkbox';
+            chk.value = type;
+            chk.checked = this.state.selectedTypes.includes(type);
+            chk.onchange = () => {
+              if (chk.checked) {
+                if (!this.state.selectedTypes.includes(type)) this.state.selectedTypes.push(type);
+              } else {
+                this.state.selectedTypes = this.state.selectedTypes.filter(t => t !== type);
+              }
+              this.notifyChange();
+            };
+            chkLabel.appendChild(chk);
+            chkLabel.appendChild(document.createTextNode(` ${type}`));
+            this.dynamicArea.appendChild(chkLabel);
+          });
+
+        } else if (this.state.mode === 'custom') {
+          const steps = AppState.getAllSteps();
+          if (steps.length === 0) {
+            this.dynamicArea.innerHTML = '<em>加载步骤列表中...</em>';
+            ApiClient.loadSteps().then(s => {
+              AppState.setAllSteps(s);
+              this.updateDynamicContent();
+            }).catch(() => {
+              this.dynamicArea.innerHTML = '<em style="color:#d32f2f">⚠️ 步骤加载失败</em>';
+            });
+            return;
+          }
+
+          steps.forEach(step => {
+            const chkLabel = document.createElement('label');
+            chkLabel.style.display = 'block';
+            chkLabel.style.marginTop = '4px';
+            chkLabel.style.cursor = 'pointer';
+            const chk = document.createElement('input');
+            chk.type = 'checkbox';
+            chk.value = step.id;
+            chk.checked = this.state.selectedIds.includes(step.id);
+            chk.onchange = () => {
+              if (chk.checked) {
+                if (!this.state.selectedIds.includes(step.id)) this.state.selectedIds.push(step.id);
+              } else {
+                this.state.selectedIds = this.state.selectedIds.filter(id => id !== step.id);
+              }
+              this.notifyChange();
+            };
+            chkLabel.appendChild(chk);
+            chkLabel.appendChild(document.createTextNode(` ${step.label || step.id}`));
+            this.dynamicArea.appendChild(chkLabel);
+          });
+        }
+      }
+
+      notifyChange() {
+        if (this.onValueChange) {
+          this.onValueChange(this.getValue());
+        }
+      }
+
+      getValue() {
+        if (this.state.mode === 'all') {
+          return { mode: 'all' };
+        } else if (this.state.mode === 'by_type') {
+          return { mode: 'by_type', selected_types: [...this.state.selectedTypes] };
+        } else {
+          return { mode: 'custom', selected_ids: [...this.state.selectedIds] };
+        }
+      }
+
+      getElement() {
+        return this.container;
+      }
     }
 
-    function toggleConfig() {
-      const content = document.getElementById('configContent');
-      const arrow = document.getElementById('configArrow');
-      const isExpanded = content.style.display === 'block';
-      content.style.display = isExpanded ? 'none' : 'block';
-      arrow.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(180deg)';
+    // === 6. UI 渲染器 ===
+    const UiRenderer = {
+      createInputForValue(key, value, onValueChange = null) {
+        if (key === 'XINJING_AUTOGEN_STEP_SELECTION') {
+          const selector = new AutogenStepSelector(value, onValueChange);
+          return selector.getElement();
+        }
+
+        if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+          const textarea = document.createElement('textarea');
+          textarea.value = JSON.stringify(value, null, 2);
+          textarea.className = 'config-value-textarea';
+          if (key === 'XINJING_LLM_RECOMMENDED_PARAMS') {
+            textarea.id = 'cfg-XINJING_LLM_RECOMMENDED_PARAMS';
+          }
+          return textarea;
+        } else {
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.value = value === null ? 'null' : String(value);
+          input.className = 'config-value-input';
+          return input;
+        }
+      },
+
+      renderConfigRow(key, value, onValueChange = null) {
+        const desc = CONFIG_METADATA[key] || '无说明';
+        const tr = document.createElement('tr');
+
+        const keyCell = document.createElement('td');
+        const keySpan = document.createElement('span');
+        keySpan.className = 'config-key';
+        keySpan.title = desc;
+        keySpan.textContent = key;
+        keyCell.appendChild(keySpan);
+
+        const valueCell = document.createElement('td');
+        const input = this.createInputForValue(key, value, onValueChange);
+        input.dataset.key = key;
+        input.spellcheck = false;
+        valueCell.appendChild(input);
+
+        tr.appendChild(keyCell);
+        tr.appendChild(valueCell);
+        return tr;
+      },
+
+      renderConfigTable(configObj) {
+        const tbody = document.getElementById('configTableBody');
+        const fragment = document.createDocumentFragment();
+
+        const configKeys = new Set(Object.keys(configObj));
+        const rendered = new Set();
+
+        const autogenEnabled = configObj['XINJING_AUTOGEN_ENABLED'] === true;
+
+        for (const key of CONFIG_DISPLAY_ORDER) {
+          if (key === 'XINJING_AUTOGEN_STEP_SELECTION' && !autogenEnabled) continue;
+          if (configKeys.has(key)) {
+            fragment.appendChild(this.renderConfigRow(key, configObj[key]));
+            rendered.add(key);
+          }
+        }
+
+        for (const key of configKeys) {
+          if (!rendered.has(key)) {
+            if (key === 'XINJING_AUTOGEN_STEP_SELECTION' && !autogenEnabled) continue;
+            fragment.appendChild(this.renderConfigRow(key, configObj[key]));
+          }
+        }
+
+        tbody.innerHTML = '';
+        tbody.appendChild(fragment);
+      }
+    };
+
+    // === 7. 主控制器 ===
+    async function initApp() {
+      // 加载 steps（用于后续 Autogen）
+      try {
+        const steps = await ApiClient.loadSteps();
+        AppState.setAllSteps(steps);
+      } catch (e) {
+        console.warn('预加载 steps 失败', e);
+      }
+
+      // 加载配置
+      try {
+        const config = await ApiClient.loadConfig();
+        AppState.setConfig(config);
+        UiRenderer.renderConfigTable(config);
+        showMessage('✅ 配置加载成功');
+      } catch (err) {
+        console.error(err);
+        showError('配置加载失败：' + (err.message || '未知错误'));
+      }
+
+      // 绑定 Autogen 开关事件
+      document.addEventListener('change', function(e) {
+        const input = e.target;
+        if (input.dataset.key === 'XINJING_AUTOGEN_ENABLED') {
+          let enabled = false;
+          const val = input.value.trim();
+          if (val === 'true' || val === 'True' || val === '1') enabled = true;
+          if (input.type === 'checkbox') enabled = input.checked;
+
+          const tbody = document.getElementById('configTableBody');
+          const stepRow = document.querySelector('tr:has([data-key="XINJING_AUTOGEN_STEP_SELECTION"])');
+
+          if (enabled && !stepRow) {
+            const currentConfig = AppState.getConfig();
+            let value = currentConfig['XINJING_AUTOGEN_STEP_SELECTION'];
+            if (!value || typeof value !== 'object') value = { mode: 'all' };
+
+            const newRow = UiRenderer.renderConfigRow('XINJING_AUTOGEN_STEP_SELECTION', value, (newValue) => {
+              AppState.updateConfig('XINJING_AUTOGEN_STEP_SELECTION', newValue);
+            });
+
+            const autogenRow = input.closest('tr');
+            if (autogenRow && tbody) {
+              if (autogenRow.nextSibling) {
+                tbody.insertBefore(newRow, autogenRow.nextSibling);
+              } else {
+                tbody.appendChild(newRow);
+              }
+            }
+          } else if (!enabled && stepRow && tbody) {
+            tbody.removeChild(stepRow);
+            AppState.updateConfig('XINJING_AUTOGEN_STEP_SELECTION', undefined);
+            delete AppState.config['XINJING_AUTOGEN_STEP_SELECTION'];
+          }
+        }
+      });
+
+      // 绑定保存按钮
+      window.saveConfigFromTable = async function() {
+        const inputs = document.querySelectorAll('#configTableBody [data-key]');
+        const newConfig = {};
+
+        for (const el of inputs) {
+          const key = el.dataset.key;
+          let value;
+
+          if (key === 'XINJING_AUTOGEN_STEP_SELECTION' && el.dataset.isAutogenStep) {
+            // 从 Autogen 组件取值（需遍历找组件实例？这里简化：用闭包已存入 state）
+            // 实际上我们已在插入时通过 onValueChange 同步到 AppState
+            value = AppState.getConfig()[key];
+          } else {
+            const raw = el.value.trim();
+            try {
+              value = parseConfigValue(raw, key);
+            } catch (e) {
+              showError(e.message || `配置项 "${key}" 格式错误`);
+              return;
+            }
+          }
+          newConfig[key] = value;
+        }
+
+        try {
+          await ApiClient.saveConfig(newConfig);
+          AppState.setConfig(newConfig);
+          showMessage('✅ 配置已保存');
+        } catch (e) {
+          const msg = e.response?.data?.detail || '保存失败';
+          showError(msg);
+        }
+      };
+
+      // 其他功能（analyze, toggleConfig）保持原样
+      window.toggleConfig = function() {
+        const content = document.getElementById('configContent');
+        const arrow = document.getElementById('configArrow');
+        const isExpanded = content.style.display === 'block';
+        content.style.display = isExpanded ? 'none' : 'block';
+        arrow.style.transform = isExpanded ? 'rotate(0deg)' : 'rotate(180deg)';
+      };
+
+      // 默认展开配置
+      window.toggleConfig();
     }
 
+    // === 初始化 ===
+    window.addEventListener('DOMContentLoaded', initApp);
+</script>
 
-    // --- 初始化 ---
-    window.addEventListener('DOMContentLoaded', () => {
-      loadConfigAsTable();
-      toggleConfig(); // 默认展开
-    });
-  </script>
 </body>
 </html>

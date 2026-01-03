@@ -1,8 +1,9 @@
-
 from typing import Dict, Any, List, Union, Tuple
-from .constants import REQUIRED_FIELDS_BY_CATEGORY, SEMANTIC_NULL_STRINGS
+from .constants import REQUIRED_FIELDS_BY_CATEGORY, SEMANTIC_NULL_STRINGS, PARALLEL_PERCEPTION_STEPS, \
+    PARALLEL_HIGH_ORDER_STEPS, SERIAL_SUGGESTION_STEPS
 from src.state_of_mind.utils.logger import LoggerManager as logger
 from ...types.perception import ValidationRule
+from collections import Counter
 
 
 class DataValidator:
@@ -306,7 +307,8 @@ class DataValidator:
                 )
                 return repaired
             # dict/list 不转 str（会丢失结构）
-            logger.warning(f"无法将复杂类型转为字符串: {field_path} = {type(value).__name__}", module_name=DataValidator.CHINESE_NAME)
+            logger.warning(f"无法将复杂类型转为字符串: {field_path} = {type(value).__name__}",
+                           module_name=DataValidator.CHINESE_NAME)
             return value
 
         # --- 4. 期望是 INT ---
@@ -353,8 +355,41 @@ class DataValidator:
 
         return value
 
-    def _collect_errors(self, cleaned_data: Dict[str, Any], rules: List[ValidationRule]) -> List[str]:
+    def _collect_errors(self, cleaned_data: Dict[str, Any], rules: List[ValidationRule], step_name: str) -> List[str]:
         errors = []
+        should_clean_evidence_quotes = step_name in (set(PARALLEL_PERCEPTION_STEPS.keys()) | set(PARALLEL_HIGH_ORDER_STEPS.keys()) | set(SERIAL_SUGGESTION_STEPS.keys()))
+
+        def _clean_evidence_if_needed(val):
+            if not should_clean_evidence_quotes:
+                return val
+            if not isinstance(val, list):
+                return val
+
+            # 定义合法的引号对（start -> end）
+            QUOTE_PAIRS = {
+                '"': '"',
+                "'": "'",
+                '“': '”',
+                '‘': '’',
+            }
+
+            cleaned_list = []
+            for item in val:
+                if isinstance(item, str) and len(item) >= 2:
+                    first_char = item[0]
+                    last_char = item[-1]
+
+                    # 检查开头是否是合法引号起始符，且结尾匹配
+                    if first_char in QUOTE_PAIRS and last_char == QUOTE_PAIRS[first_char]:
+                        cleaned_list.append(item[1:-1])
+                        continue
+
+                    cleaned_list.append(item)
+                else:
+                    cleaned_list.append(item)
+
+            return cleaned_list
+
         for rule in rules:
             try:
                 field_path, required, validator, desc = rule
@@ -368,6 +403,13 @@ class DataValidator:
                 concrete_items = self.expand_wildcard_paths(cleaned_data, field_path)
                 for concrete_path, value in concrete_items:
                     dot_path = concrete_path.replace('[', '.').replace(']', '')
+
+                    if should_clean_evidence_quotes and dot_path.endswith('.evidence'):
+                        cleaned_value = _clean_evidence_if_needed(value)
+                        if cleaned_value != value:
+                            self.deep_set(cleaned_data, dot_path, cleaned_value)
+                            value = cleaned_value
+
                     repaired_value = self._maybe_repair_value(value, concrete_path, validator)
                     if repaired_value != value:
                         self.deep_set(cleaned_data, dot_path, repaired_value)
@@ -376,6 +418,12 @@ class DataValidator:
                     errors.extend(field_errors)
             else:
                 value = self.deep_get(cleaned_data, field_path)
+                if should_clean_evidence_quotes and field_path.endswith('.evidence'):
+                    cleaned_value = _clean_evidence_if_needed(value)
+                    if cleaned_value != value:
+                        self.deep_set(cleaned_data, field_path, cleaned_value)
+                        value = cleaned_value
+
                 repaired_value = self._maybe_repair_value(value, field_path, validator)
                 if repaired_value != value:
                     self.deep_set(cleaned_data, field_path, repaired_value)
@@ -383,6 +431,9 @@ class DataValidator:
                 field_errors = self._validate_field(value, field_path, required, validator)
                 errors.extend(field_errors)
 
+        # ===== 对 evidence 做去重 + 计数 =====
+        if should_clean_evidence_quotes:
+            self._dedup_and_count_evidence(cleaned_data, step_name)
         return errors
 
     @staticmethod
@@ -401,6 +452,95 @@ class DataValidator:
                 extra={"error_count": len(errors), "errors": errors}
             )
         return result
+
+    def _dedup_and_count_evidence(self, cleaned_data: Dict[str, Any], step_name: str) -> None:
+        """
+        目标：
+        1. 每个 event.evidence → 去重（无重复字符串）
+        2. 每个 event → 添加 evidence_with_count（基于该 event 内原始出现次数）
+        3. 顶层 evidence = 所有 events 中 evidence 的全局去重集合
+        4. 顶层 evidence_with_count = 每个 evidence 在所有 events 中的总出现次数（含 event 内重复）
+        5. 原始顶层 evidence 被完全忽略，以 events 为唯一来源
+        """
+        if not cleaned_data:
+            return
+
+        top_key = next(iter(cleaned_data))
+        container = cleaned_data[top_key]
+        if not isinstance(container, dict):
+            return
+
+        events = container.get('events')
+        if not isinstance(events, list):
+            events = []
+
+        all_raw_fragments_for_global_count = []  # 用于统计全局 count（保留所有原始出现）
+
+        # Step 1: 处理每个 event —— 去重 + 本地计数
+        for ev in events:
+            if not (isinstance(ev, dict) and 'evidence' in ev and isinstance(ev['evidence'], list)):
+                continue
+
+            raw_list = []
+            for frag in ev['evidence']:
+                if isinstance(frag, str):
+                    s = frag.strip()
+                    if s:
+                        raw_list.append(s)
+
+            if not raw_list:
+                ev['evidence'] = []
+                ev['evidence_with_count'] = []
+                continue
+
+            # 本地去重（保留顺序）
+            seen_local = set()
+            unique_local = []
+            local_count = {}
+            for s in raw_list:
+                if s not in seen_local:
+                    seen_local.add(s)
+                    unique_local.append(s)
+                    local_count[s] = 1
+                else:
+                    local_count[s] += 1
+
+            # 更新 event：去重后的 evidence + 本地计数
+            ev['evidence'] = unique_local
+            ev['evidence_with_count'] = [
+                {"text": t, "count": local_count[t]} for t in unique_local
+            ]
+
+            # 累积到全局计数池（用原始 raw_list，包含 event 内重复！）
+            all_raw_fragments_for_global_count.extend(raw_list)
+
+        # Step 2: 构建顶层 evidence 和全局计数
+        if all_raw_fragments_for_global_count:
+            # 全局去重（按首次出现顺序）
+            seen_global = set()
+            global_unique = []
+            for s in all_raw_fragments_for_global_count:
+                if s not in seen_global:
+                    seen_global.add(s)
+                    global_unique.append(s)
+
+            # 全局计数
+            from collections import Counter
+            global_count = Counter(all_raw_fragments_for_global_count)
+
+            container['evidence'] = global_unique
+            container['evidence_with_count'] = [
+                {"text": t, "count": global_count[t]} for t in global_unique
+            ]
+        else:
+            container['evidence'] = []
+            container['evidence_with_count'] = []
+
+        logger.info(
+            f"[{step_name}] evidence 完全去重完成 | "
+            f"events={len(events)}, global unique={len(container['evidence'])}",
+            module_name=self.CHINESE_NAME
+        )
 
     # --- 对外接口 ---
     def validate(
@@ -435,6 +575,6 @@ class DataValidator:
                 "cleaned_data": cleaned_data
             }
 
-        errors = self._collect_errors(cleaned_data, rules)
+        errors = self._collect_errors(cleaned_data, rules, step_name)
         is_valid = len(errors) == 0
         return self._build_result(is_valid, errors, cleaned_data, template_name, step_name)

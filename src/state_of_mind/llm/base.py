@@ -225,51 +225,37 @@ class LLMBackend(ABC):
             self,
             prompt: str,
             model: str,
-            params: dict
-    ) -> str:
-        """注意：此方法保持返回 str，不走 LLMResponse（因用途不同）"""
-        start_time = time.time()
-        try:
-            payload = self._build_text_payload(
-                prompt=prompt,
-                model=model,
-                params=params,
-            )
+            params: dict,
+            step_name: str,
+            prompt_type: str
+    ) -> Dict[str, Any]:
+        return await self._call_text_mode(
+            prompt=prompt,
+            model=model,
+            params=params,
+            step_name=step_name,
+            prompt_type=prompt_type,
+            payload_fn=self._build_text_payload
+        )
 
-            log_params = {k: v for k, v in params.items() if k in ("temperature", "max_tokens", "top_p")}
-            logger.info(
-                f"📝 [{self.CHINESE_NAME} - 生成建议] 调用 LLM API",
-                extra={
-                    "model": model,
-                    "params": log_params,
-                    "prompt_length": len(prompt),
-                    "prompt_preview": prompt[:100].replace("\n", "\\n")
-                }
-            )
-
-            response = await self.client.post(self.api_url, json=payload)
-            latency_ms = (time.time() - start_time) * 1000
-
-            if response.status_code != 200:
-                err = f"HTTP {response.status_code}: {response.text[:200]}"
-                logger.error(f"❌ [{self.CHINESE_NAME}] generate_text 失败", extra={"error": err})
-                return f"生成失败: {err}"
-
-            content = self._extract_content_from_response(response.json())
-            if not content:
-                logger.warning(f"⚠️ [{self.CHINESE_NAME}] 返回空内容")
-                return "生成失败：无内容返回"
-
-            stripped = content.strip()
-            logger.info(
-                f"✅ [{self.CHINESE_NAME}] 生成成功",
-                extra={"output_length": len(stripped), "latency_ms": round(latency_ms, 2)}
-            )
-            return stripped
-
-        except Exception as e:
-            logger.exception(f"💥 [{self.CHINESE_NAME}] generate_text 异常")
-            return f"生成失败: {str(e)}"
+    @async_timed
+    @retry_decorator(max_retries=3, enable_exp_backoff=True)
+    async def guided_global_semantic_signature(
+            self,
+            prompt: str,
+            model: str,
+            params: dict,
+            step_name: str,
+            prompt_type: str
+    ) -> Dict[str, Any]:
+        return await self._call_text_mode(
+            prompt=prompt,
+            model=model,
+            params=params,
+            step_name=step_name,
+            prompt_type=prompt_type,
+            payload_fn=self._build_text_payload
+        )
 
     @async_timed
     @retry_decorator(max_retries=3, enable_exp_backoff=True)
@@ -277,66 +263,18 @@ class LLMBackend(ABC):
             self,
             prompt: str,
             model: str,
-            params: dict
-    ) -> Dict[int, str]:
-        start_time = time.time()
-        system_prompt = "你必须输出一个严格的 JSON 对象。不要有任何额外文字解释、前缀、后缀或 Markdown 代码块。确保输出是有效的 json 格式。"
-        try:
-            payload = self._build_json_payload(
-                prompt=prompt,
-                model=model,
-                params=params,
-                system_prompt=system_prompt
-            )
-
-            log_params = {k: v for k, v in params.items() if k in ("temperature", "max_tokens", "top_p")}
-            logger.info(
-                f"🧠 [{self.CHINESE_NAME} - 指代消解] 调用 LLM API",
-                extra={
-                    "model": model,
-                    "params": log_params,
-                    "prompt_length": len(prompt)
-                }
-            )
-
-            response = await self.client.post(self.api_url, json=payload)
-            latency_ms = (time.time() - start_time) * 1000
-
-            if response.status_code != 200:
-                logger.error(f"❌ [{self.CHINESE_NAME}] 指代消解 API 失败", extra={"status": response.status_code})
-                return {}
-
-            content = self._extract_content_from_response(response.json())
-            if not content:
-                logger.warning(f"⚠️ [{self.CHINESE_NAME}] 指代消解返回空内容")
-                return {}
-
-            stripped = content.strip()
-            start = stripped.find("{")
-            end = stripped.rfind("}") + 1
-            if start == -1 or end <= start:
-                logger.warning("⚠️ 无有效 JSON", extra={"output": stripped[:200]})
-                return {}
-
-            try:
-                parsed = json.loads(stripped[start:end])
-            except json.JSONDecodeError:
-                logger.warning("⚠️ JSON 解析失败", extra={"output": stripped[:200]})
-                return {}
-
-            result = {}
-            for k, v in parsed.items():
-                if isinstance(k, str) and isinstance(v, str):
-                    try:
-                        idx = int(k)
-                        result[idx] = v
-                    except ValueError:
-                        continue
-            return result
-
-        except Exception as e:
-            logger.exception(f"💥 [{self.CHINESE_NAME}] 指代消解异常")
-            return {}
+            params: dict,
+            step_name: str,
+            prompt_type: str
+    ) -> Dict[str, Any]:
+        return await self._call_json_coref_mode(
+            prompt=prompt,
+            model=model,
+            params=params,
+            step_name=step_name,
+            prompt_type=prompt_type,
+            payload_fn=self._build_json_payload
+        )
 
     @staticmethod
     def _parse_api_error(response) -> str:
@@ -348,6 +286,195 @@ class LLMBackend(ABC):
             return f"[{code}] {msg}"
         except Exception:
             return f"HTTP {response.status_code} (无法解析响应)"
+
+    # ========================
+    # 通用调用方法（仅用于 text 类型）
+    # ========================
+    async def _call_text_mode(
+            self,
+            prompt: str,
+            model: str,
+            params: dict,
+            step_name: str,
+            prompt_type: str,
+            payload_fn
+    ) -> Dict[str, Any]:
+        start_time = time.time()
+        try:
+            payload = payload_fn(prompt=prompt, model=model, params=params)
+            response = await self.client.post(self.api_url, json=payload)
+            latency_ms = (time.time() - start_time) * 1000
+
+            logger.info(
+                f"[{self.CHINESE_NAME}] 调用 LLM (text mode)",
+                extra={
+                    "step_name": step_name,
+                    "model": model,
+                    "latency_ms": round(latency_ms, 1),
+                    "prompt_length": len(prompt)
+                }
+            )
+
+            if response.status_code != 200:
+                raw_resp = response.text
+                result = ""
+                api_error = f"HTTP {response.status_code}"
+                success = False
+                logger.warning(
+                    f"[{self.CHINESE_NAME}] HTTP 错误",
+                    extra={"step_name": step_name, "status_code": response.status_code}
+                )
+            else:
+                result = self._extract_content_from_response(response.json()) or ""
+                raw_resp = result
+                api_error = None
+                success = bool(result.strip())
+                logger.info(
+                    f"[{self.CHINESE_NAME}] 成功返回文本",
+                    extra={"step_name": step_name, "result_length": len(result)}
+                )
+
+            return {
+                "data": result.strip(),
+                "step_name": step_name,
+                "prompt_type": prompt_type,
+                "__raw_response": raw_resp,
+                "__success": success,
+                "__valid_structure": True,
+                "__system_error": None,
+                "__api_error": api_error,
+                "__validation_errors": []
+            }
+
+        except Exception as e:
+            logger.exception(
+                f"[{self.CHINESE_NAME}] 文本调用异常",
+                extra={"step_name": step_name, "error": str(e)}
+            )
+            return {
+                "data": "",
+                "step_name": step_name,
+                "prompt_type": prompt_type,
+                "__raw_response": "",
+                "__success": False,
+                "__valid_structure": True,
+                "__system_error": str(e),
+                "__api_error": None,
+                "__validation_errors": []
+            }
+
+    # ========================
+    # 通用调用方法（仅用于 JSON coref 模式）
+    # ========================
+    async def _call_json_coref_mode(
+            self,
+            prompt: str,
+            model: str,
+            params: dict,
+            step_name: str,
+            prompt_type: str,
+            payload_fn
+    ) -> Dict[str, Any]:
+        start_time = time.time()
+        system_prompt = "你必须输出一个严格的 JSON 对象。不要有任何额外文字解释、前缀、后缀或 Markdown 代码块。确保输出是有效的 json 格式。"
+        try:
+            payload = payload_fn(
+                prompt=prompt,
+                model=model,
+                params=params,
+                system_prompt=system_prompt
+            )
+            response = await self.client.post(self.api_url, json=payload)
+            latency_ms = (time.time() - start_time) * 1000
+
+            logger.info(
+                f"[{self.CHINESE_NAME}] 调用 LLM (JSON coref mode)",
+                extra={
+                    "step_name": step_name,
+                    "model": model,
+                    "latency_ms": round(latency_ms, 1),
+                    "prompt_length": len(prompt)
+                }
+            )
+
+            if response.status_code != 200:
+                raw_resp = response.text
+                result = {}
+                api_error = f"HTTP {response.status_code}"
+                success = False
+                logger.warning(
+                    f"[{self.CHINESE_NAME}] HTTP 错误 (JSON mode)",
+                    extra={"step_name": step_name, "status_code": response.status_code}
+                )
+            else:
+                content = self._extract_content_from_response(response.json())
+                if not content:
+                    raw_resp = ""
+                    result = {}
+                    api_error = "空响应"
+                    success = False
+                    logger.warning(f"[{self.CHINESE_NAME}] 模型返回空内容", extra={"step_name": step_name})
+                else:
+                    stripped = content.strip()
+                    raw_resp = stripped
+                    start = stripped.find("{")
+                    end = stripped.rfind("}") + 1
+                    if start == -1 or end <= start:
+                        result = {}
+                        api_error = "无有效 JSON"
+                        success = False
+                        logger.warning(f"[{self.CHINESE_NAME}] 未找到 JSON 块", extra={"step_name": step_name})
+                    else:
+                        try:
+                            parsed = json.loads(stripped[start:end])
+                            result = {}
+                            for k, v in parsed.items():
+                                if isinstance(k, str) and isinstance(v, str):
+                                    try:
+                                        idx = int(k)
+                                        result[idx] = v
+                                    except ValueError:
+                                        pass
+                            api_error = None
+                            success = True
+                            logger.info(f"[{self.CHINESE_NAME}] 成功解析 JSON coref", extra={"step_name": step_name})
+                        except json.JSONDecodeError as je:
+                            result = {}
+                            api_error = f"JSON 解析失败: {str(je)}"
+                            success = False
+                            logger.warning(
+                                f"[{self.CHINESE_NAME}] JSON 解析失败",
+                                extra={"step_name": step_name, "error": str(je)}
+                            )
+
+            return {
+                "data": result,
+                "step_name": step_name,
+                "prompt_type": prompt_type,
+                "__raw_response": raw_resp,
+                "__success": success,
+                "__valid_structure": True,
+                "__system_error": None,
+                "__api_error": api_error,
+                "__validation_errors": []
+            }
+
+        except Exception as e:
+            logger.exception(
+                f"[{self.CHINESE_NAME}] JSON coref 调用异常",
+                extra={"step_name": step_name, "error": str(e)}
+            )
+            return {
+                "data": {},
+                "step_name": step_name,
+                "prompt_type": prompt_type,
+                "__raw_response": "",
+                "__success": False,
+                "__valid_structure": True,
+                "__system_error": str(e),
+                "__api_error": None,
+                "__validation_errors": []
+            }
 
     async def close(self):
         if self.client:
